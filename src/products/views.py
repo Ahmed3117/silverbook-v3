@@ -948,7 +948,7 @@ class TeacherRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
 
 class ProductListCreateView(generics.ListCreateAPIView):
     queryset = Product.objects.all()
-    serializer_class = ProductSerializer
+    serializer_class = AdminProductSerializer
     filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter]
     filterset_class = ProductFilter
     search_fields = ['name', 'category__name', 'description']
@@ -963,9 +963,19 @@ class ProductListBreifedView(generics.ListCreateAPIView):
     search_fields = ['name', 'category__name', 'description']
     permission_classes = [IsAdminUser]
 
+class ProductSimpleListView(generics.ListAPIView):
+    """Simple product list endpoint with minimal fields for dropdowns/selections"""
+    queryset = Product.objects.all()
+    serializer_class = SimpleProductSerializer
+    filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter]
+    filterset_fields = ['is_available', 'type', 'teacher', 'subject']
+    search_fields = ['name']
+    permission_classes = [IsAdminUser]
+    pagination_class = None  # Disable pagination for direct list response
+
 class ProductRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Product.objects.all()
-    serializer_class = ProductSerializer
+    serializer_class = AdminProductSerializer
     permission_classes = [IsAdminUser]
 
 class ProductImageListCreateView(generics.ListCreateAPIView):
@@ -1089,7 +1099,7 @@ class ProductDescriptionRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroy
 
 class SpecialProductListCreateView(generics.ListCreateAPIView):
     queryset = SpecialProduct.objects.all()
-    serializer_class = SpecialProductSerializer
+    serializer_class = AdminSpecialProductSerializer
     filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter]
     filterset_fields = ['is_active', 'product']
     search_fields = ['product__name', 'product__category__name']
@@ -1103,13 +1113,13 @@ class SpecialProductListCreateView(generics.ListCreateAPIView):
 
 class SpecialProductRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
     queryset = SpecialProduct.objects.all()
-    serializer_class = SpecialProductSerializer
+    serializer_class = AdminSpecialProductSerializer
     permission_classes = [IsAdminUser]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
 class BestProductListCreateView(generics.ListCreateAPIView):
     queryset = BestProduct.objects.all()
-    serializer_class = BestProductSerializer
+    serializer_class = AdminBestProductSerializer
     filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter]
     filterset_fields = ['is_active', 'product']
     search_fields = ['product__name', 'product__category__name']
@@ -1121,7 +1131,7 @@ class BestProductListCreateView(generics.ListCreateAPIView):
 
 class BestProductRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
     queryset = BestProduct.objects.all()
-    serializer_class = BestProductSerializer
+    serializer_class = AdminBestProductSerializer
     permission_classes = [IsAdminUser]
 
 from django.db.models import Prefetch
@@ -1915,13 +1925,47 @@ class RemoveBookFromPackageView(APIView):
 class PackageProductListView(generics.ListAPIView):
     """List all package-product relationships (Dashboard)"""
     permission_classes = [IsAdminUser]
-    serializer_class = PackageProductSerializer
+    serializer_class = PackageProductListSerializer
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['package_product', 'related_product']
+    filterset_fields = {
+        'package_product__is_available': ['exact'],
+        'package_product__subject': ['exact'],
+        'package_product__teacher': ['exact'],
+        'package_product__type': ['exact'],
+        'package_product__category': ['exact'],
+        'package_product__year': ['exact'],
+    }
+    pagination_class = CustomPageNumberPagination
 
     def get_queryset(self):
-        from .models import PackageProduct
-        return PackageProduct.objects.all().select_related('package_product', 'related_product')
+        from .models import PackageProduct, Product
+        # Get all unique package products (type='package') that have relationships
+        # SQLite doesn't support DISTINCT ON, so we'll use values() with distinct()
+        package_ids = PackageProduct.objects.filter(
+            package_product__type='package'
+        ).values_list('package_product_id', flat=True).distinct()
+        
+        # Get the first PackageProduct PK for each unique package
+        pk_list = []
+        for package_id in package_ids:
+            pp = PackageProduct.objects.filter(
+                package_product_id=package_id
+            ).values_list('pk', flat=True).first()
+            if pp:
+                pk_list.append(pp)
+        
+        # Return a proper QuerySet filtered by these PKs
+        return PackageProduct.objects.filter(
+            pk__in=pk_list
+        ).select_related(
+            'package_product__category',
+            'package_product__subject',
+            'package_product__teacher',
+        ).prefetch_related(
+            'package_product__package_products__related_product__category',
+            'package_product__package_products__related_product__subject',
+            'package_product__package_products__related_product__teacher'
+        )
 
 
 class PackageBooksListView(APIView):
