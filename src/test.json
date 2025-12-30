@@ -1,0 +1,91 @@
+ [
+    {
+        "related_product_id": 2,
+        "created_at": "2025-12-30T12:54:06.612475Z",
+        "product_id": 6,
+        "product_number": "silverbook-6",
+        "name": "s3s3s333333333333",
+        "type": "book",
+        "category_id": 1,
+        "category_name": "cat1",
+        "subject_id": 1,
+        "subject_name": "subject1",
+        "teacher_id": null,
+        "teacher_name": null,
+        "description": "A comprehensive physics guide",
+        "base_image": "https://easy.easy-stream.net/products/e5f6g7h8-1234-56cd-efgh.jpg",
+        "main_image": null,
+        "pdf_fill": "https://easy.easy-stream.net/products/abcd1234-ef56-78gh-ijkl.pdf",
+        "year": null,
+        "language": "ar",
+        "is_available": true,
+        "date_added": "2025-12-11T14:11:52.886225Z",
+        "average_rating": 0.0,
+        "number_of_ratings": 0
+        
+    }
+]
+
+
+
+
+{
+            "id": 7,
+            "product_number": "silverbook-7",
+            "name": "silver-1",
+            "type": "package",
+            "year": "second-secondary",
+            "category": 1,
+            "sub_category": null,
+            "subject": 1,
+            "teacher": 1,
+            "category_id": 1,
+            "category_name": "cat1",
+            "subject_id": 1,
+            "subject_name": "subject1",
+            "teacher_id": 1,
+            "teacher_name": "Ahmed El-Sayed",
+            "teacher_image": "https://easy.easy-stream.net/teachers/a1.jpg",
+            "sub_category_id": null,
+            "sub_category_name": null,
+            "price": 200.0,
+            "description": "Complete guide to algebra basics and advanced concepts",
+            "date_added": "2025-12-23T08:18:47.558300Z",
+            "discounted_price": 160.0,
+            "has_discount": true,
+            "current_discount": 20.0,
+            "discount_expiry": "2026-12-31T23:59:59Z",
+            "main_image": null,
+            "images": [],
+            "number_of_ratings": 0,
+            "average_rating": 0.0,
+            "descriptions": [],
+            "base_image": null,
+            "language": "ar",
+            "related_products": [
+                {
+                    "id": 2,
+                    "created_at": "2025-12-30T12:54:06.612475Z",
+                    "product_id": 6,
+                    "product_number": "silverbook-6",
+                    "name": "s3s3s333333333333",
+                    "type": "book",
+                    "category_id": 1,
+                    "category_name": "cat1",
+                    "subject_id": 1,
+                    "subject_name": "subject1",
+                    "teacher_id": null,
+                    "teacher_name": null,
+                    "description": "A comprehensive physics guide",
+                    "base_image": "https://easy.easy-stream.net/products/e5f6g7h8-1234-56cd-efgh.jpg",
+                    "main_image": null,
+                    "year": null,
+                    "language": "ar",
+                    "is_available": true,
+                    "date_added": "2025-12-11T14:11:52.886225Z",
+                    "average_rating": 0.0,
+                    "number_of_ratings": 0
+                    
+                }
+            ]
+        }

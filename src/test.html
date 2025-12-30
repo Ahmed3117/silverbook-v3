@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>S3 Direct Upload Test - SilverBook</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 { font-size: 28px; margin-bottom: 10px; }
+        .header p { opacity: 0.9; font-size: 14px; }
+        .content { padding: 40px; }
+        .section {
+            margin-bottom: 40px;
+            padding-bottom: 40px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .section:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+        .section h2 {
+            font-size: 20px;
+            color: #1f2937;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+        }
+        .section h2 span {
+            background: #667eea;
+            color: white;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 12px;
+            font-size: 16px;
+        }
+        .form-group { margin-bottom: 20px; }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #374151;
+            font-weight: 500;
+            font-size: 14px;
+        }
+        input[type="text"], input[type="number"], input[type="file"], select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e5e7eb;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        input:focus, select:focus { outline: none; border-color: #667eea; }
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+        button:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .progress-item { margin-bottom: 15px; }
+        .progress-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 13px;
+            color: #374151;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e5e7eb;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            transition: width 0.3s;
+        }
+        .status-message {
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            font-size: 14px;
+        }
+        .status-success { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
+        .status-error { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+        .status-info { background: #dbeafe; color: #0c4a6e; border: 1px solid #7dd3fc; }
+        .response-box {
+            background: #f3f4f6;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            padding: 15px;
+            margin-top: 15px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .info-box {
+            background: #eff2ff;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            font-size: 13px;
+        }
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #667eea;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+            margin-right: 8px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .upload-card {
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 15px;
+            background: #fafafa;
+        }
+        .upload-card h3 { font-size: 16px; margin-bottom: 15px; color: #374151; }
+        .file-info {
+            background: #e8f5e9;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+            font-size: 13px;
+            color: #2e7d32;
+        }
+        .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        @media (max-width: 768px) { .form-row, .two-col { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 S3 Direct Upload Test</h1>
+            <p>Test large file uploads directly to S3 without storing on the server first</p>
+        </div>
+
+        <div class="content">
+            <!-- Configuration -->
+            <div class="section">
+                <h2><span>1</span>Configuration</h2>
+                <div class="info-box">ℹ️ Configure your API endpoint. Make sure Django server is running.</div>
+                <div class="form-group">
+                    <label>API Base URL</label>
+                    <input type="text" id="apiBaseUrl" value="http://localhost:9000/products">
+                </div>
+                <button onclick="testConnection()">Test Connection</button>
+                <div id="connectionStatus"></div>
+            </div>
+
+            <!-- Upload Files -->
+            <div class="section">
+                <h2><span>2</span>Upload Files to S3</h2>
+                <div class="info-box">📤 Upload your PDF and cover image directly to S3. Large files upload efficiently.</div>
+
+                <div class="two-col">
+                    <!-- PDF Upload -->
+                    <div class="upload-card">
+                        <h3>📄 PDF File</h3>
+                        <div class="form-group">
+                            <input type="file" id="pdfFileInput" accept=".pdf" onchange="updateFileInfo('pdf')">
+                        </div>
+                        <div class="progress-item" id="pdfProgressSection" style="display: none;">
+                            <div class="progress-label">
+                                <span>Uploading...</span>
+                                <span id="pdfUploadPercent">0%</span>
+                            </div>
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="pdfProgressFill" style="width: 0%"></div>
+                            </div>
+                        </div>
+                        <button onclick="uploadFile('pdf')">Upload PDF</button>
+                        <div id="pdfUploadStatus"></div>
+                        <div class="file-info" id="pdfObjectKeyInfo" style="display: none;">
+                            <strong>✓ S3 Key:</strong> <span id="pdfObjectKeyDisplay"></span>
+                        </div>
+                    </div>
+
+                    <!-- Image Upload -->
+                    <div class="upload-card">
+                        <h3>🖼️ Cover Image</h3>
+                        <div class="form-group">
+                            <input type="file" id="imageFileInput" accept="image/*" onchange="updateFileInfo('image')">
+                        </div>
+                        <div class="progress-item" id="imageProgressSection" style="display: none;">
+                            <div class="progress-label">
+                                <span>Uploading...</span>
+                                <span id="imageUploadPercent">0%</span>
+                            </div>
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="imageProgressFill" style="width: 0%"></div>
+                            </div>
+                        </div>
+                        <button onclick="uploadFile('image')">Upload Image</button>
+                        <div id="imageUploadStatus"></div>
+                        <div class="file-info" id="imageObjectKeyInfo" style="display: none;">
+                            <strong>✓ S3 Key:</strong> <span id="imageObjectKeyDisplay"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <button onclick="uploadBothFiles()" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); margin-top: 10px;">
+                    ⬆️ Upload Both Files
+                </button>
+            </div>
+
+            <!-- Create Product -->
+            <div class="section">
+                <h2><span>3</span>Create Product</h2>
+                <div class="info-box">📦 Create a product with the uploaded S3 files. Keys are auto-filled after upload.</div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Product Name *</label>
+                        <input type="text" id="productName" placeholder="e.g., Advanced Physics">
+                    </div>
+                    <div class="form-group">
+                        <label>Price</label>
+                        <input type="number" id="productPrice" placeholder="99.99" step="0.01">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Category ID</label>
+                        <input type="number" id="productCategory" placeholder="1">
+                    </div>
+                    <div class="form-group">
+                        <label>Subject ID</label>
+                        <input type="number" id="productSubject" placeholder="1">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Description</label>
+                    <input type="text" id="productDescription" placeholder="Product description">
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>PDF S3 Object Key (auto-filled)</label>
+                        <input type="text" id="productPdfKey" placeholder="Filled after PDF upload">
+                    </div>
+                    <div class="form-group">
+                        <label>Image S3 Object Key (auto-filled)</label>
+                        <input type="text" id="productImageKey" placeholder="Filled after image upload">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Page Count</label>
+                        <input type="number" id="productPageCount" placeholder="200">
+                    </div>
+                    <div class="form-group">
+                        <label>File Size (MB) - auto-filled</label>
+                        <input type="number" id="productFileSize" placeholder="50" step="0.01">
+                    </div>
+                </div>
+
+                <button onclick="createProduct()">Create Product</button>
+                <div id="productStatus"></div>
+                <div class="response-box" id="productResponse" style="display: none;"></div>
+            </div>
+
+            <!-- Upload Product Images -->
+            <div class="section">
+                <h2><span>4</span>Upload Product Images</h2>
+                <div class="info-box">🖼️ Upload additional images for the created product. Select multiple images at once.</div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Product ID (auto-filled after creating product)</label>
+                        <input type="number" id="productImageProductId" placeholder="Enter Product ID">
+                    </div>
+                    <div class="form-group">
+                        <label>Select Images (multiple)</label>
+                        <input type="file" id="productImagesInput" accept="image/*" multiple onchange="updateSelectedImages()">
+                    </div>
+                </div>
+
+                <div id="selectedImagesList" style="margin-bottom: 15px;"></div>
+
+                <div id="imageUploadProgressContainer"></div>
+
+                <button onclick="uploadProductImages()">⬆️ Upload All Images</button>
+                <div id="productImagesStatus"></div>
+                <div class="response-box" id="productImagesResponse" style="display: none;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let pdfObjectKey = null;
+        let imageObjectKey = null;
+
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return (bytes / Math.pow(k, i)).toFixed(2) + ' ' + sizes[i];
+        }
+
+        function showStatus(id, message, type) {
+            document.getElementById(id).innerHTML = `<div class="status-message status-${type}">${message}</div>`;
+        }
+
+        function updateFileInfo(type) {
+            const input = document.getElementById(type + 'FileInput');
+            if (input.files.length) {
+                const file = input.files[0];
+                showStatus(type + 'UploadStatus', `Selected: ${file.name} (${formatBytes(file.size)})`, 'info');
+            }
+        }
+
+        async function testConnection() {
+            const baseUrl = document.getElementById('apiBaseUrl').value;
+            try {
+                showStatus('connectionStatus', '<div class="spinner"></div> Testing...', 'info');
+                const response = await fetch(`${baseUrl}/products/`);
+                showStatus('connectionStatus', response.ok ? '✓ Connection successful!' : `✗ HTTP ${response.status}`, response.ok ? 'success' : 'error');
+            } catch (error) {
+                showStatus('connectionStatus', `✗ Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function generatePresignedUrl(fileName, fileCategory) {
+            const baseUrl = document.getElementById('apiBaseUrl').value;
+            const ext = fileName.split('.').pop().toLowerCase();
+            const mimeTypes = {
+                'pdf': 'application/pdf',
+                'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'jfif': 'image/jpeg',
+                'png': 'image/png', 'gif': 'image/gif', 'webp': 'image/webp',
+                'bmp': 'image/bmp', 'ico': 'image/x-icon', 'svg': 'image/svg+xml',
+                'tiff': 'image/tiff', 'tif': 'image/tiff'
+            };
+
+            const response = await fetch(`${baseUrl}/api/generate-presigned-url/`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    file_name: fileName,
+                    file_type: mimeTypes[ext] || 'application/octet-stream',
+                    file_category: fileCategory
+                })
+            });
+
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error || 'Failed to generate URL');
+            return data;
+        }
+
+        async function uploadFile(type) {
+            const input = document.getElementById(type + 'FileInput');
+            if (!input.files.length) {
+                showStatus(type + 'UploadStatus', 'Please select a file first', 'error');
+                return;
+            }
+
+            const file = input.files[0];
+            const category = type === 'pdf' ? 'pdf' : 'image';
+
+            try {
+                showStatus(type + 'UploadStatus', '<div class="spinner"></div> Getting upload URL...', 'info');
+                const presignedData = await generatePresignedUrl(file.name, category);
+
+                showStatus(type + 'UploadStatus', '<div class="spinner"></div> Uploading to S3...', 'info');
+                document.getElementById(type + 'ProgressSection').style.display = 'block';
+
+                await new Promise((resolve, reject) => {
+                    const xhr = new XMLHttpRequest();
+                    xhr.upload.onprogress = (e) => {
+                        if (e.lengthComputable) {
+                            const percent = (e.loaded / e.total) * 100;
+                            document.getElementById(type + 'UploadPercent').textContent = Math.round(percent) + '%';
+                            document.getElementById(type + 'ProgressFill').style.width = percent + '%';
+                        }
+                    };
+                    xhr.onload = () => xhr.status === 200 ? resolve() : reject(new Error(`HTTP ${xhr.status}`));
+                    xhr.onerror = () => reject(new Error('Upload failed'));
+                    xhr.open('PUT', presignedData.url);
+                    xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+                    xhr.send(file);
+                });
+
+                // Store and display the key
+                if (type === 'pdf') {
+                    pdfObjectKey = presignedData.object_key;
+                    document.getElementById('productPdfKey').value = pdfObjectKey;
+                    document.getElementById('productFileSize').value = (file.size / (1024 * 1024)).toFixed(2);
+                } else {
+                    imageObjectKey = presignedData.object_key;
+                    document.getElementById('productImageKey').value = imageObjectKey;
+                }
+
+                document.getElementById(type + 'ObjectKeyDisplay').textContent = presignedData.object_key;
+                document.getElementById(type + 'ObjectKeyInfo').style.display = 'block';
+                showStatus(type + 'UploadStatus', '✓ Uploaded successfully!', 'success');
+
+            } catch (error) {
+                showStatus(type + 'UploadStatus', `✗ Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function uploadBothFiles() {
+            const pdfInput = document.getElementById('pdfFileInput');
+            const imageInput = document.getElementById('imageFileInput');
+
+            if (!pdfInput.files.length && !imageInput.files.length) {
+                alert('Please select at least one file');
+                return;
+            }
+
+            if (pdfInput.files.length) await uploadFile('pdf');
+            if (imageInput.files.length) await uploadFile('image');
+        }
+
+        async function createProduct() {
+            const baseUrl = document.getElementById('apiBaseUrl').value;
+            const name = document.getElementById('productName').value;
+
+            if (!name) {
+                showStatus('productStatus', 'Product Name is required', 'error');
+                return;
+            }
+
+            try {
+                showStatus('productStatus', '<div class="spinner"></div> Creating product...', 'info');
+
+                const payload = { name };
+                
+                const price = document.getElementById('productPrice').value;
+                const category = document.getElementById('productCategory').value;
+                const subject = document.getElementById('productSubject').value;
+                const description = document.getElementById('productDescription').value;
+                const pdfKey = document.getElementById('productPdfKey').value;
+                const imageKey = document.getElementById('productImageKey').value;
+                const pageCount = document.getElementById('productPageCount').value;
+                const fileSize = document.getElementById('productFileSize').value;
+
+                if (price) payload.price = parseFloat(price);
+                if (category) payload.category = parseInt(category);
+                if (subject) payload.subject = parseInt(subject);
+                if (description) payload.description = description;
+                if (pdfKey) payload.pdf_file = pdfKey;
+                if (imageKey) payload.base_image = imageKey;
+                if (pageCount) payload.page_count = parseInt(pageCount);
+                if (fileSize) payload.file_size_mb = parseFloat(fileSize);
+
+                const response = await fetch(`${baseUrl}/dashboard/products/`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(JSON.stringify(data));
+                }
+
+                showStatus('productStatus', `✓ Product created! ID: ${data.id}`, 'success');
+                document.getElementById('productResponse').style.display = 'block';
+                document.getElementById('productResponse').textContent = JSON.stringify(data, null, 2);
+
+                // Auto-fill the product ID for image uploads
+                document.getElementById('productImageProductId').value = data.id;
+
+            } catch (error) {
+                showStatus('productStatus', `✗ Error: ${error.message}`, 'error');
+            }
+        }
+
+        // Product Images Upload Functions
+        let productImageFiles = [];
+        let uploadedImageKeys = [];
+
+        function updateSelectedImages() {
+            const input = document.getElementById('productImagesInput');
+            productImageFiles = Array.from(input.files);
+            
+            if (productImageFiles.length === 0) {
+                document.getElementById('selectedImagesList').innerHTML = '';
+                return;
+            }
+
+            let html = '<div style="background: #f0f9ff; padding: 15px; border-radius: 6px; border: 1px solid #bae6fd;">';
+            html += `<strong style="color: #0369a1;">📁 Selected ${productImageFiles.length} image(s):</strong><ul style="margin: 10px 0 0 20px; color: #0c4a6e;">`;
+            productImageFiles.forEach((file, i) => {
+                html += `<li>${file.name} (${formatBytes(file.size)})</li>`;
+            });
+            html += '</ul></div>';
+            document.getElementById('selectedImagesList').innerHTML = html;
+        }
+
+        async function uploadProductImages() {
+            const productId = document.getElementById('productImageProductId').value;
+            
+            if (!productId) {
+                showStatus('productImagesStatus', 'Please enter a Product ID', 'error');
+                return;
+            }
+
+            if (productImageFiles.length === 0) {
+                showStatus('productImagesStatus', 'Please select images first', 'error');
+                return;
+            }
+
+            const baseUrl = document.getElementById('apiBaseUrl').value;
+            uploadedImageKeys = [];
+            const failedUploads = [];
+            
+            // Create progress bars for each image
+            let progressHtml = '';
+            productImageFiles.forEach((file, i) => {
+                progressHtml += `
+                    <div class="progress-item" id="imgProgress_${i}" style="margin-bottom: 10px;">
+                        <div class="progress-label">
+                            <span id="imgName_${i}">${file.name}</span>
+                            <span id="imgPercent_${i}">0%</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="imgFill_${i}" style="width: 0%"></div>
+                        </div>
+                        <div id="imgStatus_${i}" style="font-size: 12px; margin-top: 4px;"></div>
+                    </div>`;
+            });
+            document.getElementById('imageUploadProgressContainer').innerHTML = progressHtml;
+
+            showStatus('productImagesStatus', '<div class="spinner"></div> Uploading images to S3...', 'info');
+
+            try {
+                // Upload each image to S3
+                for (let i = 0; i < productImageFiles.length; i++) {
+                    const file = productImageFiles[i];
+                    
+                    try {
+                        // Get presigned URL
+                        let presignedData;
+                        try {
+                            presignedData = await generatePresignedUrl(file.name, 'image');
+                        } catch (err) {
+                            throw new Error(`Failed to get presigned URL: ${err.message}`);
+                        }
+
+                        // Upload to S3 with progress
+                        await new Promise((resolve, reject) => {
+                            const xhr = new XMLHttpRequest();
+                            xhr.upload.onprogress = (e) => {
+                                if (e.lengthComputable) {
+                                    const percent = (e.loaded / e.total) * 100;
+                                    document.getElementById(`imgPercent_${i}`).textContent = Math.round(percent) + '%';
+                                    document.getElementById(`imgFill_${i}`).style.width = percent + '%';
+                                }
+                            };
+                            xhr.onload = () => {
+                                if (xhr.status >= 200 && xhr.status < 300) {
+                                    uploadedImageKeys.push({
+                                        object_key: presignedData.object_key,
+                                        is_main: uploadedImageKeys.length === 0 // First successful is main
+                                    });
+                                    resolve();
+                                } else {
+                                    reject(new Error(`HTTP ${xhr.status} - ${xhr.responseText || xhr.statusText}`));
+                                }
+                            };
+                            xhr.onerror = () => reject(new Error('Network error'));
+                            xhr.ontimeout = () => reject(new Error('Timeout'));
+                            xhr.open('PUT', presignedData.url);
+                            xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+                            xhr.send(file);
+                        });
+
+                        // Mark as success
+                        document.getElementById(`imgStatus_${i}`).innerHTML = '<span style="color: #059669;">✓ Uploaded</span>';
+                        document.getElementById(`imgFill_${i}`).style.background = 'linear-gradient(90deg, #10b981 0%, #059669 100%)';
+
+                    } catch (uploadError) {
+                        // Mark as failed but continue
+                        failedUploads.push({ name: file.name, error: uploadError.message });
+                        document.getElementById(`imgStatus_${i}`).innerHTML = `<span style="color: #dc2626;">✗ ${uploadError.message}</span>`;
+                        document.getElementById(`imgFill_${i}`).style.background = '#dc2626';
+                    }
+                }
+
+                // If no images uploaded successfully
+                if (uploadedImageKeys.length === 0) {
+                    showStatus('productImagesStatus', '✗ All uploads failed. See individual errors above.', 'error');
+                    return;
+                }
+
+                showStatus('productImagesStatus', `<div class="spinner"></div> Creating ${uploadedImageKeys.length} product image(s) in database...`, 'info');
+
+                // Call the bulk S3 upload endpoint
+                const response = await fetch(`${baseUrl}/dashboard/product-images/bulk-upload-s3/`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        product: parseInt(productId),
+                        images: uploadedImageKeys
+                    })
+                });
+
+                const responseText = await response.text();
+                let data;
+                try {
+                    data = JSON.parse(responseText);
+                } catch (e) {
+                    // Response is not JSON (likely HTML error page)
+                    console.error('Server response:', responseText);
+                    throw new Error(`Server error (not JSON): ${responseText.substring(0, 200)}...`);
+                }
+
+                if (!response.ok) {
+                    throw new Error(JSON.stringify(data));
+                }
+
+                let statusMsg = `✓ Successfully created ${data.length} product image(s)!`;
+                if (failedUploads.length > 0) {
+                    statusMsg += ` (${failedUploads.length} failed to upload)`;
+                }
+                showStatus('productImagesStatus', statusMsg, failedUploads.length > 0 ? 'info' : 'success');
+                document.getElementById('productImagesResponse').style.display = 'block';
+                document.getElementById('productImagesResponse').textContent = JSON.stringify({
+                    created: data,
+                    failed: failedUploads
+                }, null, 2);
+
+            } catch (error) {
+                showStatus('productImagesStatus', `✗ Error: ${error.message}`, 'error');
+            }
+        }
+    </script>
+</body>
+</html>

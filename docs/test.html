@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>S3 Direct Upload Test - SilverBook</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+
+        .content {
+            padding: 40px;
+        }
+
+        .section {
+            margin-bottom: 40px;
+            padding-bottom: 40px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        .section:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+
+        .section h2 {
+            font-size: 20px;
+            color: #1f2937;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+        }
+
+        .section h2 span {
+            background: #667eea;
+            color: white;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 12px;
+            font-size: 16px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #374151;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        input[type="text"],
+        input[type="number"],
+        input[type="email"],
+        input[type="file"],
+        select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e5e7eb;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+            font-family: inherit;
+        }
+
+        input[type="text"]:focus,
+        input[type="number"]:focus,
+        input[type="email"]:focus,
+        input[type="file"]:focus,
+        select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .file-input-wrapper {
+            position: relative;
+        }
+
+        .file-input-label {
+            display: block;
+            padding: 20px;
+            border: 2px dashed #667eea;
+            border-radius: 8px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: #f8f9ff;
+        }
+
+        .file-input-label:hover {
+            background: #eff2ff;
+            border-color: #764ba2;
+        }
+
+        .file-input-label.dragover {
+            background: #e5e7ff;
+            border-color: #764ba2;
+        }
+
+        .file-name {
+            color: #667eea;
+            font-weight: 500;
+            margin-top: 8px;
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        button.secondary {
+            background: #6b7280;
+        }
+
+        button.secondary:hover {
+            box-shadow: 0 10px 20px rgba(107, 114, 128, 0.3);
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .progress-section {
+            margin-top: 20px;
+        }
+
+        .progress-item {
+            margin-bottom: 15px;
+        }
+
+        .progress-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 13px;
+            color: #374151;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 6px;
+            background: #e5e7eb;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            transition: width 0.3s;
+        }
+
+        .status-message {
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            font-size: 14px;
+        }
+
+        .status-success {
+            background: #d1fae5;
+            color: #065f46;
+            border: 1px solid #6ee7b7;
+        }
+
+        .status-error {
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #fca5a5;
+        }
+
+        .status-info {
+            background: #dbeafe;
+            color: #0c4a6e;
+            border: 1px solid #7dd3fc;
+        }
+
+        .response-box {
+            background: #f3f4f6;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            padding: 15px;
+            margin-top: 15px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            color: #374151;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e5e7eb;
+        }
+
+        .tab-btn {
+            background: none;
+            color: #6b7280;
+            padding: 12px 20px;
+            border: none;
+            border-bottom: 3px solid transparent;
+            cursor: pointer;
+            font-weight: 500;
+            margin: 0;
+            margin-bottom: -2px;
+        }
+
+        .tab-btn.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .info-box {
+            background: #eff2ff;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            font-size: 13px;
+            color: #374151;
+        }
+
+        .info-box code {
+            background: white;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+
+        @media (max-width: 768px) {
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+
+            .header {
+                padding: 20px;
+            }
+
+            .header h1 {
+                font-size: 22px;
+            }
+
+            .content {
+                padding: 20px;
+            }
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #667eea;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+            margin-right: 8px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 S3 Direct Upload Test</h1>
+            <p>Test large file uploads directly to S3 without storing on the server first</p>
+        </div>
+
+        <div class="content">
+            <!-- Configuration Section -->
+            <div class="section">
+                <h2><span>1</span>Configuration</h2>
+                <div class="info-box">
+                    ℹ️ Configure your API endpoint below. Make sure your Django server is running with proper S3 credentials.
+                </div>
+
+                <div class="form-group">
+                    <label>API Base URL</label>
+                    <input type="text" id="apiBaseUrl" value="http://localhost:8000/products" placeholder="http://localhost:8000/products">
+                </div>
+
+                <div class="form-group">
+                    <label>Admin Token (JWT)</label>
+                    <input type="text" id="adminToken" placeholder="Your JWT token for authentication">
+                </div>
+
+                <button onclick="testConnection()">Test Connection</button>
+                <div id="connectionStatus"></div>
+            </div>
+
+            <!-- Presigned URL Generation -->
+            <div class="section">
+                <h2><span>2</span>Generate Presigned URLs</h2>
+                <div class="info-box">
+                    💡 First, generate presigned URLs for the files you want to upload. These URLs allow direct upload to S3.
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>File Name (e.g., my-pdf.pdf)</label>
+                        <input type="text" id="presignedFileName" placeholder="document.pdf" value="large-file.pdf">
+                    </div>
+                    <div class="form-group">
+                        <label>File Category</label>
+                        <select id="presignedFileCategory">
+                            <option value="pdf">PDF</option>
+                            <option value="image">Image</option>
+                            <option value="uploads">Other Files</option>
+                        </select>
+                    </div>
+                </div>
+
+                <button onclick="generatePresignedUrl()">Generate Presigned URL</button>
+                <div id="presignedStatus"></div>
+
+                <div class="response-box" id="presignedResponse" style="display: none;"></div>
+            </div>
+
+            <!-- File Upload Section -->
+            <div class="section">
+                <h2><span>3</span>Upload File to S3</h2>
+                <div class="info-box">
+                    📤 Use the presigned URL from step 2 to upload your file directly to S3. Large files will upload efficiently.
+                </div>
+
+                <div class="form-group">
+                    <label>File to Upload</label>
+                    <div class="file-input-wrapper">
+                        <input type="file" id="fileInput" style="display: none;">
+                        <label for="fileInput" class="file-input-label" id="fileInputLabel">
+                            <div>📁 Click to select file or drag and drop</div>
+                            <div class="file-name" id="selectedFileName"></div>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="progress-section" id="uploadProgressSection" style="display: none;">
+                    <div class="progress-item">
+                        <div class="progress-label">
+                            <span>Upload Progress</span>
+                            <span id="uploadPercent">0%</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="uploadProgressFill"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <button onclick="uploadFileToS3()">Upload to S3</button>
+                <div id="uploadStatus"></div>
+
+                <div class="response-box" id="uploadResponse" style="display: none;"></div>
+            </div>
+
+            <!-- Product Creation Section -->
+            <div class="section">
+                <h2><span>4</span>Create Product with S3 Files</h2>
+                <div class="info-box">
+                    📦 After uploading files to S3, create a product using the S3 object keys from the uploads above.
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Product Name *</label>
+                        <input type="text" id="productName" placeholder="e.g., Advanced Physics" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Price</label>
+                        <input type="number" id="productPrice" placeholder="99.99" step="0.01">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Category ID</label>
+                        <input type="number" id="productCategory" placeholder="1">
+                    </div>
+                    <div class="form-group">
+                        <label>Subject ID</label>
+                        <input type="number" id="productSubject" placeholder="1">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Description</label>
+                    <input type="text" id="productDescription" placeholder="Product description">
+                </div>
+
+                <div class="form-group">
+                    <label>PDF S3 Object Key (from upload above)</label>
+                    <input type="text" id="productPdfKey" placeholder="e.g., pdfs/550e8400-e29b.pdf" id="pdfKey">
+                </div>
+
+                <div class="form-group">
+                    <label>Base Image S3 Object Key (from upload above)</label>
+                    <input type="text" id="productImageKey" placeholder="e.g., products/550e8400-e29b.jpg">
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Page Count</label>
+                        <input type="number" id="productPageCount" placeholder="200">
+                    </div>
+                    <div class="form-group">
+                        <label>File Size (MB)</label>
+                        <input type="number" id="productFileSize" placeholder="50" step="0.1">
+                    </div>
+                </div>
+
+                <button onclick="createProduct()">Create Product</button>
+                <div id="productStatus"></div>
+
+                <div class="response-box" id="productResponse" style="display: none;"></div>
+            </div>
+
+            <!-- Bulk Image Upload Section -->
+            <div class="section">
+                <h2><span>5</span>Bulk Upload Product Images (S3)</h2>
+                <div class="info-box">
+                    🖼️ Upload multiple product images to S3 and link them to a product.
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Product ID *</label>
+                        <input type="number" id="bulkImageProductId" placeholder="Product ID" required>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Image S3 Object Keys (one per line)</label>
+                    <textarea id="bulkImageKeys" placeholder="products/image1.jpg&#10;products/image2.jpg" style="width: 100%; height: 120px; padding: 12px; border: 2px solid #e5e7eb; border-radius: 6px; font-family: monospace;"></textarea>
+                </div>
+
+                <button onclick="bulkUploadImages()">Create Product Images</button>
+                <div id="bulkImageStatus"></div>
+
+                <div class="response-box" id="bulkImageResponse" style="display: none;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Store upload results
+        let lastPresignedUrl = null;
+        let lastObjectKey = null;
+        let selectedFile = null;
+
+        // Drag and drop support
+        const fileInputLabel = document.getElementById('fileInputLabel');
+        const fileInput = document.getElementById('fileInput');
+
+        fileInputLabel.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            fileInputLabel.classList.add('dragover');
+        });
+
+        fileInputLabel.addEventListener('dragleave', () => {
+            fileInputLabel.classList.remove('dragover');
+        });
+
+        fileInputLabel.addEventListener('drop', (e) => {
+            e.preventDefault();
+            fileInputLabel.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length) {
+                fileInput.files = files;
+                updateFileName();
+            }
+        });
+
+        fileInput.addEventListener('change', updateFileName);
+
+        function updateFileName() {
+            if (fileInput.files.length) {
+                selectedFile = fileInput.files[0];
+                document.getElementById('selectedFileName').textContent = 
+                    `✓ Selected: ${selectedFile.name} (${formatBytes(selectedFile.size)})`;
+            }
+        }
+
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+        }
+
+        function showStatus(elementId, message, type) {
+            const element = document.getElementById(elementId);
+            element.innerHTML = `<div class="status-message status-${type}">${message}</div>`;
+        }
+
+        function showResponse(elementId, data) {
+            const element = document.getElementById(elementId);
+            element.style.display = 'block';
+            element.textContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+        }
+
+        async function makeRequest(url, options = {}) {
+            const token = document.getElementById('adminToken').value;
+            const headers = {
+                'Content-Type': 'application/json',
+                ...(token && { 'Authorization': `Bearer ${token}` })
+            };
+
+            try {
+                const response = await fetch(url, {
+                    ...options,
+                    headers: { ...headers, ...options.headers }
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || data.error || `HTTP ${response.status}`);
+                }
+
+                return data;
+            } catch (error) {
+                throw new Error(error.message);
+            }
+        }
+
+        async function testConnection() {
+            const baseUrl = document.getElementById('apiBaseUrl').value;
+            if (!baseUrl) {
+                showStatus('connectionStatus', 'Please enter API Base URL', 'error');
+                return;
+            }
+
+            try {
+                showStatus('connectionStatus', '<div class="spinner"></div> Testing connection...', 'info');
+                const response = await fetch(`${baseUrl}/products/`);
+                if (response.ok) {
+                    showStatus('connectionStatus', '✓ Connection successful!', 'success');
+                } else {
+                    showStatus('connectionStatus', `✗ Connection failed (HTTP ${response.status})`, 'error');
+                }
+            } catch (error) {
+                showStatus('connectionStatus', `✗ Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function generatePresignedUrl() {
+            const baseUrl = document.getElementById('apiBaseUrl').value;
+            const fileName = document.getElementById('presignedFileName').value;
+            const fileCategory = document.getElementById('presignedFileCategory').value;
+            const token = document.getElementById('adminToken').value;
+
+            if (!baseUrl) {
+                showStatus('presignedStatus', 'Please enter API Base URL', 'error');
+                return;
+            }
+
+            if (!fileName) {
+                showStatus('presignedStatus', 'Please enter a file name', 'error');
+                return;
+            }
+
+            if (!token) {
+                showStatus('presignedStatus', 'Please enter Admin Token', 'error');
+                return;
+            }
+
+            try {
+                showStatus('presignedStatus', '<div class="spinner"></div> Generating presigned URL...', 'info');
+
+                const mimeType = fileName.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg';
+
+                const data = await makeRequest(`${baseUrl}/api/generate-presigned-url/`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        file_name: fileName,
+                        file_type: mimeType,
+                        file_category: fileCategory
+                    })
+                });
+
+                if (data.success) {
+                    lastPresignedUrl = data.url;
+                    lastObjectKey = data.object_key;
+                    showStatus('presignedStatus', `✓ Presigned URL generated successfully!<br><small>Object Key: ${data.object_key}</small>`, 'success');
+                    showResponse('presignedResponse', data);
+                } else {
+                    showStatus('presignedStatus', `✗ Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showStatus('presignedStatus', `✗ Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function uploadFileToS3() {
+            if (!selectedFile) {
+                showStatus('uploadStatus', 'Please select a file first', 'error');
+                return;
+            }
+
+            if (!lastPresignedUrl) {
+                showStatus('uploadStatus', 'Please generate a presigned URL first (Step 2)', 'error');
+                return;
+            }
+
+            try {
+                showStatus('uploadStatus', '<div class="spinner"></div> Uploading to S3...', 'info');
+                document.getElementById('uploadProgressSection').style.display = 'block';
+
+                // Upload with progress tracking
+                const xhr = new XMLHttpRequest();
+
+                xhr.upload.addEventListener('progress', (e) => {
+                    if (e.lengthComputable) {
+                        const percentComplete = (e.loaded / e.total) * 100;
+                        document.getElementById('uploadPercent').textContent = Math.round(percentComplete) + '%';
+                        document.getElementById('uploadProgressFill').style.width = percentComplete + '%';
+                    }
+                });
+
+                xhr.addEventListener('load', () => {
+                    if (xhr.status === 200 || xhr.status === 201) {
+                        showStatus('uploadStatus', `✓ File uploaded successfully!<br><small>Object Key: ${lastObjectKey}</small>`, 'success');
+                        document.getElementById('productPdfKey').value = lastObjectKey;
+                        showResponse('uploadResponse', `✓ File: ${selectedFile.name}\n✓ Size: ${formatBytes(selectedFile.size)}\n✓ S3 Key: ${lastObjectKey}`);
+                    } else {
+                        showStatus('uploadStatus', `✗ Upload failed (HTTP ${xhr.status})`, 'error');
+                    }
+                });
+
+                xhr.addEventListener('error', () => {
+                    showStatus('uploadStatus', `✗ Upload error: ${xhr.statusText}`, 'error');
+                });
+
+                xhr.open('PUT', lastPresignedUrl);
+                xhr.setRequestHeader('Content-Type', selectedFile.type || 'application/octet-stream');
+                xhr.send(selectedFile);
+
+            } catch (error) {
+                showStatus('uploadStatus', `✗ Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function createProduct() {
+            const baseUrl = document.getElementById('apiBaseUrl').value;
+            const token = document.getElementById('adminToken').value;
+            const productName = document.getElementById('productName').value;
+            const productPrice = document.getElementById('productPrice').value;
+            const productCategory = document.getElementById('productCategory').value;
+            const productSubject = document.getElementById('productSubject').value;
+            const productDescription = document.getElementById('productDescription').value;
+            const productPdfKey = document.getElementById('productPdfKey').value;
+            const productImageKey = document.getElementById('productImageKey').value;
+            const productPageCount = document.getElementById('productPageCount').value;
+            const productFileSize = document.getElementById('productFileSize').value;
+
+            if (!baseUrl || !token || !productName) {
+                showStatus('productStatus', 'Please fill in required fields', 'error');
+                return;
+            }
+
+            try {
+                showStatus('productStatus', '<div class="spinner"></div> Creating product...', 'info');
+
+                const payload = {
+                    name: productName,
+                    ...(productPrice && { price: parseFloat(productPrice) }),
+                    ...(productCategory && { category: parseInt(productCategory) }),
+                    ...(productSubject && { subject: parseInt(productSubject) }),
+                    ...(productDescription && { description: productDescription }),
+                    ...(productPdfKey && { pdf_object_key: productPdfKey }),
+                    ...(productImageKey && { base_image_object_key: productImageKey }),
+                    ...(productPageCount && { page_count: parseInt(productPageCount) }),
+                    ...(productFileSize && { file_size_mb: parseFloat(productFileSize) })
+                };
+
+                const data = await makeRequest(`${baseUrl}/dashboard/products/`, {
+                    method: 'POST',
+                    body: JSON.stringify(payload)
+                });
+
+                showStatus('productStatus', `✓ Product created successfully! (ID: ${data.id})`, 'success');
+                showResponse('productResponse', data);
+            } catch (error) {
+                showStatus('productStatus', `✗ Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function bulkUploadImages() {
+            const baseUrl = document.getElementById('apiBaseUrl').value;
+            const token = document.getElementById('adminToken').value;
+            const productId = document.getElementById('bulkImageProductId').value;
+            const imageKeysText = document.getElementById('bulkImageKeys').value;
+
+            if (!baseUrl || !token || !productId || !imageKeysText) {
+                showStatus('bulkImageStatus', 'Please fill in all required fields', 'error');
+                return;
+            }
+
+            try {
+                showStatus('bulkImageStatus', '<div class="spinner"></div> Creating product images...', 'info');
+
+                const imageKeys = imageKeysText
+                    .split('\n')
+                    .map(k => k.trim())
+                    .filter(k => k);
+
+                const data = await makeRequest(`${baseUrl}/dashboard/product-images/bulk-upload-s3/`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        product: parseInt(productId),
+                        image_object_keys: imageKeys
+                    })
+                });
+
+                showStatus('bulkImageStatus', `✓ ${imageKeys.length} product images created successfully!`, 'success');
+                showResponse('bulkImageResponse', data);
+            } catch (error) {
+                showStatus('bulkImageStatus', `✗ Error: ${error.message}`, 'error');
+            }
+        }
+    </script>
+</body>
+</html>
