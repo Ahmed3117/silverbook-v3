@@ -96,8 +96,8 @@ urlpatterns = [
     path('products/<int:product_id>/related-products/', views.ProductRelatedProductsView.as_view(), name='product-related-products'),
     path('dashboard/packages/add-books/', views.AddBooksToPackageView.as_view(), name='add-books-to-package'),
     path('dashboard/packages/package-products/', views.PackageProductListView.as_view(), name='package-products-list'),
-    path('dashboard/packages/package-products/<int:package_id>/', views.PackageBooksListView.as_view(), name='package-books-list'),
-    path('dashboard/packages/package-products/delete/<int:pk>/', views.RemoveBookFromPackageView.as_view(), name='remove-book-from-package'),
+    path('dashboard/packages/package-products/<int:pk>/', views.RemoveBookFromPackageView.as_view(), name='package-product-detail'),
+    path('dashboard/packages/packages/<int:package_id>/books/', views.PackageBooksListView.as_view(), name='package-books-list'),
     path('dashboard/packages/products/<int:product_id>/remove-all-relationships/', views.RemoveAllProductRelationshipsView.as_view(), name='remove-all-product-relationships'),
 
     # Payment Endpoints (Fawaterak, Shakeout, EasyPay)
