@@ -25,7 +25,7 @@ from .filters import CategoryFilter, CouponDiscountFilter, PillFilter, ProductFi
 from .models import (
     Category, CouponDiscount,
     ProductImage, Rating, SubCategory, Product, Pill,
-    PurchasedBook, PillItem
+    PurchasedBook, PillItem, Subject, Teacher
 )
 from accounts.models import User
 from .permissions import IsOwner, IsOwnerOrReadOnly
@@ -969,6 +969,25 @@ class ProductSimpleListView(generics.ListAPIView):
     serializer_class = SimpleProductSerializer
     filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter]
     filterset_fields = ['is_available', 'type', 'teacher', 'subject']
+    search_fields = ['name']
+    permission_classes = [IsAdminUser]
+    pagination_class = None  # Disable pagination for direct list response
+
+class SubjectSimpleListView(generics.ListAPIView):
+    """Simple subject list endpoint with minimal fields for dropdowns/selections"""
+    queryset = Subject.objects.all()
+    serializer_class = SimpleSubjectSerializer
+    filter_backends = [rest_filters.SearchFilter]
+    search_fields = ['name']
+    permission_classes = [IsAdminUser]
+    pagination_class = None  # Disable pagination for direct list response
+
+class TeacherSimpleListView(generics.ListAPIView):
+    """Simple teacher list endpoint with minimal fields for dropdowns/selections"""
+    queryset = Teacher.objects.all()
+    serializer_class = SimpleTeacherSerializer
+    filter_backends = [rest_filters.SearchFilter, DjangoFilterBackend]
+    filterset_fields = ['subject']
     search_fields = ['name']
     permission_classes = [IsAdminUser]
     pagination_class = None  # Disable pagination for direct list response

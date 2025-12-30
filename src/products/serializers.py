@@ -547,6 +547,18 @@ class SimpleProductSerializer(serializers.ModelSerializer):
         model = Product
         fields = ['id', 'name', 'type']
 
+class SimpleSubjectSerializer(serializers.ModelSerializer):
+    """Simple serializer for subject listings with minimal fields"""
+    class Meta:
+        model = Subject
+        fields = ['id', 'name']
+
+class SimpleTeacherSerializer(serializers.ModelSerializer):
+    """Simple serializer for teacher listings with minimal fields"""
+    class Meta:
+        model = Teacher
+        fields = ['id', 'name']
+
 class CouponCodeField(serializers.Field):
     def to_internal_value(self, data):
         try:
