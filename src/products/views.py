@@ -1922,6 +1922,51 @@ class RemoveBookFromPackageView(APIView):
             )
 
 
+class RemoveAllProductRelationshipsView(APIView):
+    """Remove all PackageProduct relationships for a given product (Dashboard endpoint)"""
+    permission_classes = [IsAdminUser]
+
+    def delete(self, request, product_id):
+        try:
+            from .models import PackageProduct, Product
+            
+            # Verify product exists
+            product = Product.objects.get(id=product_id)
+            
+            # Get all relationships where this product is involved
+            # Either as package_product or related_product
+            relationships = PackageProduct.objects.filter(
+                Q(package_product=product) | Q(related_product=product)
+            )
+            
+            count = relationships.count()
+            
+            if count == 0:
+                return Response({
+                    'message': f'لا توجد علاقات للمنتج "{product.name}"'
+                }, status=status.HTTP_200_OK)
+            
+            # Delete all relationships
+            relationships.delete()
+            
+            return Response({
+                'message': f'تم حذف {count} علاقة للمنتج "{product.name}" بنجاح',
+                'deleted_count': count
+            }, status=status.HTTP_200_OK)
+            
+        except Product.DoesNotExist:
+            return Response(
+                {'error': 'المنتج غير موجود'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Error removing product relationships: {str(e)}")
+            return Response(
+                {'error': 'حدث خطأ أثناء حذف علاقات المنتج'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
 class PackageProductListView(generics.ListAPIView):
     """List all package-product relationships (Dashboard)"""
     permission_classes = [IsAdminUser]
