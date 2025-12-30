@@ -98,6 +98,7 @@ urlpatterns = [
     path('dashboard/packages/package-products/', views.PackageProductListView.as_view(), name='package-products-list'),
     path('dashboard/packages/package-products/<int:package_id>/', views.PackageBooksListView.as_view(), name='package-books-list'),
     path('dashboard/packages/package-products/delete/<int:pk>/', views.RemoveBookFromPackageView.as_view(), name='remove-book-from-package'),
+    path('dashboard/packages/products/<int:product_id>/remove-all-relationships/', views.RemoveAllProductRelationshipsView.as_view(), name='remove-all-product-relationships'),
 
     # Payment Endpoints (Fawaterak, Shakeout, EasyPay)
     path('api/payment/create/<int:pill_id>/', payment_views.create_payment_view, name='api_create_payment'),
