@@ -83,6 +83,10 @@ from django.db.models import Count, Q
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def signup(request):
+    # Prevent admin registration - تسجيل الحساب للطلاب فقط
+    if request.data.get('user_type') != 'student':
+        return Response({'error': 'تسجيل الحساب للطلاب فقط'}, status=status.HTTP_400_BAD_REQUEST)
+    
     serializer = UserSerializer(data=request.data)
     if serializer.is_valid():
         user = serializer.save()

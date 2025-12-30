@@ -53,6 +53,7 @@ urlpatterns = [
     path('dashboard/teachers/<int:pk>/', views.TeacherRetrieveUpdateDestroyView.as_view(), name='admin-teacher-detail'),
     path('dashboard/products/', views.ProductListCreateView.as_view(), name='admin-product-list-create'),
     path('dashboard/products-breifed/', views.ProductListBreifedView.as_view(), name='admin-product-list-breifed'),
+    path('dashboard/products-simple/', views.ProductSimpleListView.as_view(), name='admin-product-simple-list'),
     path('dashboard/products/<int:pk>/', views.ProductRetrieveUpdateDestroyView.as_view(), name='admin-product-detail'),
     path('api/generate-presigned-url/', views.GeneratePresignedUploadUrlView.as_view(), name='generate-presigned-url'),
     path('dashboard/product-images/', views.ProductImageListCreateView.as_view(), name='admin-product-image-list-create'),

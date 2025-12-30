@@ -75,7 +75,7 @@ class UserSerializer(serializers.ModelSerializer):
             'is_staff': {'read_only': True},
             'is_superuser': {'read_only': True},
             'email': {'required': False, 'allow_null': True, 'allow_blank': True},
-            'user_type': {'required': False, 'allow_null': True},
+            'user_type': {'required': True},  # Now required since field is NOT NULL
             'parent_phone': {'required': False, 'allow_null': True, 'allow_blank': True},
             'year': {'required': False, 'allow_null': True},
             'division': {'required': False, 'allow_null': True},

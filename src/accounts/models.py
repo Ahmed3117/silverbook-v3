@@ -36,6 +36,7 @@ USER_TYPE_CHOICES = [
         ('parent', 'Parent'),
         ('teacher', 'Teacher'),
         ('store', 'Store'),
+        ('admin', 'Admin'),
     ]
     
 YEAR_CHOICES = [
@@ -70,7 +71,7 @@ class User(AbstractUser):
     otp = models.CharField(max_length=6, null=True, blank=True)
     otp_created_at = models.DateTimeField(null=True, blank=True)
     email = models.EmailField(blank=True, null=True, max_length=254)
-    user_type = models.CharField(max_length=20, choices=USER_TYPE_CHOICES, null=True, blank=True)
+    user_type = models.CharField(max_length=20, choices=USER_TYPE_CHOICES)
     parent_phone = models.CharField(max_length=20, null=True, blank=True, help_text="Only applicable for students")
     year = models.CharField(
         max_length=20,
@@ -98,7 +99,11 @@ class User(AbstractUser):
         return self.name if self.name else self.username
     
     def save(self, *args, **kwargs):
-        """Validate unique name for teachers before saving"""
+        """Auto-set admin type for staff/superusers and validate teacher name"""
+        # Automatically set user_type to 'admin' for superusers or staff
+        if self.is_superuser or self.is_staff:
+            self.user_type = 'admin'
+        
         self.validate_teacher_name_unique()
         super().save(*args, **kwargs)
     
