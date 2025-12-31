@@ -271,12 +271,11 @@ class UserOrderItemSerializer(serializers.ModelSerializer):
         if not product:
             return None
 
-        image = product.base_image or product.main_image()
-        if not image or not hasattr(image, 'url'):
+        if not product.base_image or not hasattr(product.base_image, 'url'):
             return None
 
         request = self.context.get('request')
-        url = image.url
+        url = product.base_image.url
         if request is not None:
             return request.build_absolute_uri(url)
         return url

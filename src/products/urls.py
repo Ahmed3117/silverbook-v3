@@ -9,8 +9,6 @@ app_name = 'products'
 
 urlpatterns = [
     # Customer Endpoints
-    path('categories/', views.CategoryListView.as_view(), name='category-list'),
-    path('subcategories/', views.SubCategoryListView.as_view(), name='subcategory-list'),
     path('subjects/', views.SubjectListView.as_view(), name='subject-list'),
     path('teachers/', views.TeacherListView.as_view(), name='teacher-list'),
     path('teachers/<int:id>/', views.TeacherDetailView.as_view(), name='teacher-detail'),
@@ -30,10 +28,6 @@ urlpatterns = [
     path('my-books/<int:purchased_book_id>/download/', views.PurchasedBookPDFDownloadView.as_view(), name='purchased-book-download'),
     path('<str:product_number>/add-free/', views.AddFreeBookView.as_view(), name='add-free-book'),
     path('<str:product_number>/owned/', views.ProductOwnedCheckView.as_view(), name='book-owned-check'),
-    path('<int:product_id>/ratings/', views.ProductRatingListCreateView.as_view(), name='product-rating-list-create'),
-    path('<int:product_id>/ratings/<int:pk>/', views.ProductRatingDetailView.as_view(), name='product-rating-detail'),
-    # Allow update/delete by rating id only (owner-only)
-    path('ratings/<int:pk>/', views.RatingByIdOwnerDetailView.as_view(), name='rating-detail-by-id'),
     path('discounts/active/', views.ProductsWithActiveDiscountAPIView.as_view(), name='products-with-discount'),
     path('loved-products/', views.LovedProductListCreateView.as_view(), name='loved-product-list-create'),
     path('loved-products/<int:product_id>/', views.LovedProductRetrieveDestroyView.as_view(), name='loved-product-detail'),
@@ -43,10 +37,6 @@ urlpatterns = [
     path('products/recommendations/', views.ProductRecommendationsView.as_view(), name='recommendations'),
 
     # Admin Endpoints
-    path('dashboard/categories/', views.CategoryListCreateView.as_view(), name='admin-category-list-create'),
-    path('dashboard/categories/<int:pk>/', views.CategoryRetrieveUpdateDestroyView.as_view(), name='admin-category-detail'),
-    path('dashboard/subcategories/', views.SubCategoryListCreateView.as_view(), name='admin-subcategory-list-create'),
-    path('dashboard/subcategories/<int:pk>/', views.SubCategoryRetrieveUpdateDestroyView.as_view(), name='admin-subcategory-detail'),
     path('dashboard/subjects/', views.SubjectListCreateView.as_view(), name='admin-subject-list-create'),
     path('dashboard/subjects/<int:pk>/', views.SubjectRetrieveUpdateDestroyView.as_view(), name='admin-subject-detail'),
     path('dashboard/subjects-simple/', views.SubjectSimpleListView.as_view(), name='admin-subject-simple-list'),
@@ -62,9 +52,6 @@ urlpatterns = [
     path('dashboard/product-images/bulk-upload/', views.ProductImageBulkCreateView.as_view(), name='admin-product-image-bulk-create'),
     path('dashboard/product-images/bulk-upload-s3/', views.ProductImageBulkS3CreateView.as_view(), name='admin-product-image-bulk-s3-create'),
     path('dashboard/product-images/<int:pk>/', views.ProductImageDetailView.as_view(), name='admin-product-image-detail'),
-    path('dashboard/product-descriptions/', views.ProductDescriptionListCreateView.as_view(), name='admin-product-description-list-create'),
-    path('dashboard/product-descriptions/bulk/', views.ProductDescriptionBulkCreateView.as_view(), name='admin-product-description-bulk-create'),
-    path('dashboard/product-descriptions/<int:pk>/', views.ProductDescriptionRetrieveUpdateDestroyView.as_view(), name='admin-product-description-detail'),
     path('dashboard/special-products/', views.SpecialProductListCreateView.as_view(), name='admin-special-product-list-create'),
     path('dashboard/special-products/<int:pk>/', views.SpecialProductRetrieveUpdateDestroyView.as_view(), name='admin-special-product-detail'),
     path('dashboard/best-products/', views.BestProductListCreateView.as_view(), name='admin-best-product-list-create'),
@@ -87,8 +74,6 @@ urlpatterns = [
     path('dashboard/coupons/', views.CouponListCreateView.as_view(), name='admin-coupon-list-create'),
     path('dashboard/coupons/bulk/', views.BulkCouponCreateView.as_view(), name='admin-coupon-bulk-create'),
     path('dashboard/coupons/<int:pk>/', views.CouponRetrieveUpdateDestroyView.as_view(), name='admin-coupon-detail'),
-    path('dashboard/ratings/', views.RatingListCreateView.as_view(), name='admin-rating-list-create'),
-    path('dashboard/ratings/<int:pk>/', views.RatingDetailView.as_view(), name='admin-rating-detail'),
     path('dashboard/add-books-to-student/', views.AddBooksToStudentView.as_view(), name='add-books-to-student'),
     path('dashboard/purchased-books/', views.AdminPurchasedBookListCreateView.as_view(), name='admin-purchased-books-list-create'),
     path('dashboard/purchased-books/<int:pk>/', views.AdminPurchasedBookRetrieveUpdateDestroyView.as_view(), name='admin-purchased-books-detail'),
