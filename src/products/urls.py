@@ -36,7 +36,7 @@ urlpatterns = [
     path('ratings/<int:pk>/', views.RatingByIdOwnerDetailView.as_view(), name='rating-detail-by-id'),
     path('discounts/active/', views.ProductsWithActiveDiscountAPIView.as_view(), name='products-with-discount'),
     path('loved-products/', views.LovedProductListCreateView.as_view(), name='loved-product-list-create'),
-    path('loved-products/<int:pk>/', views.LovedProductRetrieveDestroyView.as_view(), name='loved-product-detail'),
+    path('loved-products/<int:product_id>/', views.LovedProductRetrieveDestroyView.as_view(), name='loved-product-detail'),
     path('products/new-arrivals/', views.NewArrivalsView.as_view(), name='new-arrivals'),
     path('products/best-sellers/', views.BestSellersView.as_view(), name='best-sellers'),
     path('products/frequently-bought-together/', views.FrequentlyBoughtTogetherView.as_view(), name='frequently-bought-together'),
@@ -81,6 +81,7 @@ urlpatterns = [
     
     path('dashboard/pills/', views.PillListCreateView.as_view(), name='admin-pill-list-create'),
     path('dashboard/pills/<int:pk>/', views.PillRetrieveUpdateDestroyView.as_view(), name='admin-pill-detail'),
+    path('dashboard/pills/<int:pk>/items/', views.PillItemsListView.as_view(), name='admin-pill-items'),
     path('dashboard/discounts/', views.DiscountListCreateView.as_view(), name='admin-discount-list-create'),
     path('dashboard/discounts/<int:pk>/', views.DiscountRetrieveUpdateDestroyView.as_view(), name='admin-discount-detail'),
     path('dashboard/coupons/', views.CouponListCreateView.as_view(), name='admin-coupon-list-create'),

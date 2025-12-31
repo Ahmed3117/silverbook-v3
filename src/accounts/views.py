@@ -580,6 +580,7 @@ def remove_student_device(request, pk, device_id):
     """
     Remove (delete) a specific device from a student.
     This will log out that device immediately (next API call will fail).
+    Also blacklists all refresh tokens to invalidate access tokens.
     """
     try:
         student = User.objects.get(pk=pk, user_type='student')
@@ -592,10 +593,25 @@ def remove_student_device(request, pk, device_id):
         return Response({'error': 'الجهاز غير موجود لهذا الطالب'}, status=status.HTTP_400_BAD_REQUEST)
     
     device_name = device.device_name
+    device_token = device.device_token
+    
+    # Delete the device first
     device.delete()
     
+    # Delete all outstanding refresh tokens for this user to invalidate access tokens immediately
+    try:
+        from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
+        
+        # Delete all outstanding tokens for this user
+        deleted_count = OutstandingToken.objects.filter(user=student).delete()[0]
+        
+        message = f'تم حذف الجهاز "{device_name}" وحذف {deleted_count} رمز وصول'
+    except ImportError:
+        # Token blacklist not enabled
+        message = f'تم حذف الجهاز "{device_name}". تحذير: ميزة إدارة الرموز غير مفعلة - قد يظل الرمز نشطًا حتى انتهاء صلاحيته'
+    
     return Response({
-        'message': f'Device "{device_name}" has been removed',
+        'message': message,
         'active_devices_count': UserDevice.objects.filter(user=student, is_active=True).count()
     })
 
@@ -605,6 +621,7 @@ def remove_student_device(request, pk, device_id):
 def remove_all_student_devices(request, pk):
     """
     Remove all devices from a student, forcing them to login again.
+    Also blacklists all refresh tokens to invalidate access tokens.
     """
     try:
         student = User.objects.get(pk=pk, user_type='student')
@@ -613,8 +630,18 @@ def remove_all_student_devices(request, pk):
     
     deleted_count = UserDevice.objects.filter(user=student).delete()[0]
     
+    # Delete all outstanding refresh tokens for this user
+    try:
+        from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
+        
+        tokens_deleted = OutstandingToken.objects.filter(user=student).delete()[0]
+        
+        message = f'تم حذف {deleted_count} جهاز و{tokens_deleted} رمز وصول'
+    except ImportError:
+        message = f'تم حذف {deleted_count} جهاز. تحذير: ميزة إدارة الرموز غير مفعلة'
+    
     return Response({
-        'message': f'All {deleted_count} device(s) have been removed',
+        'message': message,
         'active_devices_count': 0
     })
 
