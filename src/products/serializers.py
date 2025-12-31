@@ -791,6 +791,188 @@ class PillItemSerializer(serializers.ModelSerializer):
         fields = ['id', 'product', 'status', 'date_added']
 
 
+class PillItemWithProductSerializer(serializers.ModelSerializer):
+    """Serializer that returns full product details for pill items"""
+    # Flatten product fields to top level
+    product_id = serializers.IntegerField(source='product.id', read_only=True)
+    product_number = serializers.CharField(source='product.product_number', read_only=True)
+    name = serializers.CharField(source='product.name', read_only=True)
+    type = serializers.CharField(source='product.type', read_only=True)
+    year = serializers.CharField(source='product.year', read_only=True)
+    category = serializers.IntegerField(source='product.category_id', read_only=True)
+    sub_category = serializers.IntegerField(source='product.sub_category_id', read_only=True)
+    subject = serializers.IntegerField(source='product.subject_id', read_only=True)
+    teacher = serializers.IntegerField(source='product.teacher_id', read_only=True)
+    category_id = serializers.SerializerMethodField()
+    category_name = serializers.SerializerMethodField()
+    subject_id = serializers.SerializerMethodField()
+    subject_name = serializers.SerializerMethodField()
+    teacher_id = serializers.SerializerMethodField()
+    teacher_name = serializers.SerializerMethodField()
+    teacher_image = serializers.SerializerMethodField()
+    sub_category_id = serializers.SerializerMethodField()
+    sub_category_name = serializers.SerializerMethodField()
+    price = serializers.FloatField(source='product.price', read_only=True)
+    description = serializers.CharField(source='product.description', read_only=True)
+    date_added = serializers.DateTimeField(source='product.date_added', read_only=True)
+    discounted_price = serializers.SerializerMethodField()
+    has_discount = serializers.SerializerMethodField()
+    current_discount = serializers.SerializerMethodField()
+    discount_expiry = serializers.SerializerMethodField()
+    main_image = serializers.SerializerMethodField()
+    images = serializers.SerializerMethodField()
+    number_of_ratings = serializers.SerializerMethodField()
+    average_rating = serializers.SerializerMethodField()
+    descriptions = serializers.SerializerMethodField()
+    base_image = serializers.SerializerMethodField()
+    language = serializers.CharField(source='product.language', read_only=True)
+    is_available = serializers.BooleanField(source='product.is_available', read_only=True)
+    related_products = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PillItem
+        fields = [
+            'id', 'status', 'product_id', 'product_number', 'name', 'type', 'year',
+            'category', 'sub_category', 'subject', 'teacher',
+            'category_id', 'category_name', 'subject_id', 'subject_name',
+            'teacher_id', 'teacher_name', 'teacher_image',
+            'sub_category_id', 'sub_category_name', 'price', 'description',
+            'date_added', 'discounted_price', 'has_discount', 'current_discount',
+            'discount_expiry', 'main_image', 'images', 'number_of_ratings',
+            'average_rating', 'descriptions', 'base_image', 'language',
+            'is_available', 'related_products'
+        ]
+
+    def get_category_id(self, obj):
+        return obj.product.category.id if obj.product.category else None
+
+    def get_category_name(self, obj):
+        return obj.product.category.name if obj.product.category else None
+
+    def get_sub_category_id(self, obj):
+        return obj.product.sub_category.id if obj.product.sub_category else None
+
+    def get_sub_category_name(self, obj):
+        return obj.product.sub_category.name if obj.product.sub_category else None
+
+    def get_subject_id(self, obj):
+        return obj.product.subject.id if obj.product.subject else None
+
+    def get_subject_name(self, obj):
+        return obj.product.subject.name if obj.product.subject else None
+
+    def get_teacher_id(self, obj):
+        return obj.product.teacher.id if obj.product.teacher else None
+
+    def get_teacher_name(self, obj):
+        return obj.product.teacher.name if obj.product.teacher else None
+
+    def get_teacher_image(self, obj):
+        if obj.product.teacher and obj.product.teacher.image:
+            return get_full_file_url(obj.product.teacher.image, self.context.get('request'))
+        return None
+
+    def get_discounted_price(self, obj):
+        return obj.product.discounted_price()
+
+    def get_has_discount(self, obj):
+        return obj.product.has_discount()
+
+    def get_current_discount(self, obj):
+        now = timezone.now()
+        product_discount = obj.product.discounts.filter(
+            is_active=True,
+            discount_start__lte=now,
+            discount_end__gte=now
+        ).order_by('-discount').first()
+        category_discount = None
+        if obj.product.category:
+            category_discount = obj.product.category.discounts.filter(
+                is_active=True,
+                discount_start__lte=now,
+                discount_end__gte=now
+            ).order_by('-discount').first()
+        if product_discount and category_discount:
+            return max(product_discount.discount, category_discount.discount)
+        elif product_discount:
+            return product_discount.discount
+        elif category_discount:
+            return category_discount.discount
+        return None
+
+    def get_discount_expiry(self, obj):
+        now = timezone.now()
+        discount = obj.product.discounts.filter(
+            is_active=True,
+            discount_start__lte=now,
+            discount_end__gte=now
+        ).order_by('-discount_end').first()
+        if not discount and obj.product.category:
+            discount = obj.product.category.discounts.filter(
+                is_active=True,
+                discount_start__lte=now,
+                discount_end__gte=now
+            ).order_by('-discount_end').first()
+        return discount.discount_end if discount else None
+
+    def get_main_image(self, obj):
+        main_image = obj.product.main_image()
+        return get_full_file_url(main_image, self.context.get('request'))
+
+    def get_images(self, obj):
+        from .models import ProductImage
+        images = ProductImage.objects.filter(product=obj.product)
+        return ProductImageSerializer(images, many=True, context=self.context).data
+
+    def get_number_of_ratings(self, obj):
+        return obj.product.number_of_ratings()
+
+    def get_average_rating(self, obj):
+        return obj.product.average_rating()
+
+    def get_descriptions(self, obj):
+        descriptions = obj.product.descriptions.all().order_by('order')
+        return ProductDescriptionSerializer(descriptions, many=True).data
+
+    def get_base_image(self, obj):
+        return get_full_file_url(obj.product.base_image, self.context.get('request'))
+
+    def get_related_products(self, obj):
+        if obj.product.type == 'package':
+            from .models import PackageProduct
+            package_products = PackageProduct.objects.filter(package_product=obj.product).select_related('related_product').order_by('-created_at')
+            related_items = []
+            request = self.context.get('request')
+            for pp in package_products:
+                related = pp.related_product
+                related_items.append({
+                    'id': pp.id,
+                    'created_at': pp.created_at,
+                    'product_id': related.id,
+                    'product_number': related.product_number,
+                    'name': related.name,
+                    'type': related.type,
+                    'category_id': related.category.id if related.category else None,
+                    'category_name': related.category.name if related.category else None,
+                    'subject_id': related.subject.id if related.subject else None,
+                    'subject_name': related.subject.name if related.subject else None,
+                    'teacher_id': related.teacher.id if related.teacher else None,
+                    'teacher_name': related.teacher.name if related.teacher else None,
+                    'description': related.description,
+                    'base_image': get_full_file_url(related.base_image, request) if related.base_image else None,
+                    'main_image': get_full_file_url(related.main_image(), request) if related.main_image() else None,
+                    'pdf_file': None,
+                    'year': related.year,
+                    'language': related.language,
+                    'is_available': related.is_available,
+                    'date_added': related.date_added,
+                    'average_rating': related.average_rating(),
+                    'number_of_ratings': related.number_of_ratings(),
+                })
+            return related_items
+        return []
+
+
 class PillItemInputSerializer(serializers.Serializer):
     product = serializers.PrimaryKeyRelatedField(queryset=Product.objects.filter(is_available=True))
 
@@ -1184,6 +1366,42 @@ class PillSerializer(serializers.ModelSerializer):
         return getattr(obj, 'payment_status', None)
 
 
+class PillDetailWithoutItemsSerializer(serializers.ModelSerializer):
+    """Pill detail serializer without items - for separate items endpoint"""
+    coupon = CouponDiscountSerializer(read_only=True)
+    user_name = serializers.SerializerMethodField()
+    user_username = serializers.SerializerMethodField()
+    user_parent_phone = serializers.SerializerMethodField()
+    final_price = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Pill
+        fields = [
+            'id', 'pill_number', 'user_name', 'user_username', 
+            'user_parent_phone', 'status', 'date_added', 'coupon', 
+            'final_price', 'shakeout_invoice_id', 'easypay_invoice_uid', 
+            'easypay_fawry_ref', 'easypay_invoice_sequence', 'payment_gateway'
+        ]
+        read_only_fields = [
+            'id', 'pill_number', 'user_name', 'user_username', 
+            'user_parent_phone', 'status', 'date_added', 'coupon', 
+            'final_price', 'shakeout_invoice_id', 'easypay_invoice_uid', 
+            'easypay_fawry_ref', 'easypay_invoice_sequence', 'payment_gateway'
+        ]
+
+    def get_user_name(self, obj):
+        return obj.user.name if obj.user else None
+
+    def get_user_username(self, obj):
+        return obj.user.username if obj.user else None
+
+    def get_user_parent_phone(self, obj):
+        return obj.user.parent_phone if obj.user else None
+
+    def get_final_price(self, obj):
+        return float(obj.final_price())
+
+
 class DiscountSerializer(serializers.ModelSerializer):
     product_name = serializers.SerializerMethodField()
     category_name = serializers.SerializerMethodField()
@@ -1248,6 +1466,18 @@ class LovedProductSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'detail': 'لم يتم توفير بيانات الاعتماد.'})
 
         return LovedProduct.objects.create(user=user, **validated_data)
+
+
+class LovedProductListSerializer(serializers.ModelSerializer):
+    """Serializer that returns only product data for loved products list"""
+    
+    class Meta:
+        model = LovedProduct
+        fields = []  # We'll override to_representation
+    
+    def to_representation(self, instance):
+        """Return only the product data"""
+        return ProductSerializer(instance.product, context=self.context).data
 
 
 class AdminLovedProductSerializer(serializers.ModelSerializer):

@@ -561,19 +561,40 @@ class ProductsWithActiveDiscountAPIView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 class LovedProductListCreateView(generics.ListCreateAPIView):
-    serializer_class = LovedProductSerializer
     permission_classes = [IsAuthenticated]
 
+    def get_serializer_class(self):
+        if self.request.method == 'GET':
+            return LovedProductListSerializer
+        return LovedProductSerializer
+
     def get_queryset(self):
-        return LovedProduct.objects.filter(user=self.request.user)
+        return LovedProduct.objects.filter(user=self.request.user).select_related(
+            'product', 'product__category', 'product__subject', 
+            'product__teacher', 'product__sub_category'
+        ).prefetch_related('product__images', 'product__descriptions')
 
     def perform_create(self, serializer):
         serializer.save()
 
 class LovedProductRetrieveDestroyView(generics.RetrieveDestroyAPIView):
-    queryset = LovedProduct.objects.all()
-    serializer_class = LovedProductSerializer
-    permission_classes = [IsAuthenticated, IsOwnerOrReadOnly]
+    serializer_class = LovedProductListSerializer
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'product_id'
+
+    def get_queryset(self):
+        return LovedProduct.objects.filter(user=self.request.user).select_related(
+            'product', 'product__category', 'product__subject', 
+            'product__teacher', 'product__sub_category'
+        ).prefetch_related('product__images', 'product__descriptions')
+
+    def get_object(self):
+        product_id = self.kwargs.get('product_id')
+        return get_object_or_404(
+            LovedProduct,
+            user=self.request.user,
+            product_id=product_id
+        )
 
 class NewArrivalsView(generics.ListAPIView):
     serializer_class = ProductSerializer
@@ -1189,8 +1210,29 @@ class PillListCreateView(generics.ListCreateAPIView):
 
 class PillRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Pill.objects.all()
-    serializer_class = PillDetailSerializer
+    serializer_class = PillDetailWithoutItemsSerializer
     permission_classes = [IsAdminUser]
+
+
+class PillItemsListView(generics.ListAPIView):
+    """
+    List items for a specific pill with pagination
+    GET /products/dashboard/pills/<pill_id>/items/
+    """
+    serializer_class = PillItemWithProductSerializer
+    permission_classes = [IsAdminUser]
+    pagination_class = CustomPageNumberPagination
+    filter_backends = [OrderingFilter]
+    ordering_fields = ['date_added', 'status']
+    ordering = ['-date_added']
+
+    def get_queryset(self):
+        pill_id = self.kwargs.get('pk')
+        return PillItem.objects.filter(pill_id=pill_id).select_related(
+            'product', 'product__teacher', 'product__category', 
+            'product__subject', 'product__sub_category'
+        ).prefetch_related('product__images', 'product__descriptions')
+
 
 class DiscountListCreateView(generics.ListCreateAPIView):
     queryset = Discount.objects.all()
