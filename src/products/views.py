@@ -1621,7 +1621,7 @@ class GeneratePresignedUploadUrlView(APIView):
         "file_type": "application/pdf"
     }
     """
-    permission_classes = [IsAuthenticated]  # Allow any user for testing - change to IsAuthenticated in production
+    permission_classes = [IsAdminUser]  
     parser_classes = [JSONParser]
     
     def post(self, request):
