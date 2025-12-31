@@ -105,7 +105,7 @@ class UserSerializer(serializers.ModelSerializer):
             # Check if it matches Egyptian phone pattern (starts with 01 and has 11 digits)
             if not re.match(r'^01[0-2,5]{1}[0-9]{8}$', username):
                 raise serializers.ValidationError({
-                    'username': 'For students, username must be a valid Egyptian phone number (e.g., 01012345678)'
+                    'username': 'بالنسبة للطلاب، يجب أن يكون اسم المستخدم رقم هاتف مصري صالح (مثل 01012345678)'
                 })
         
         # Validate unique teacher names
@@ -122,7 +122,7 @@ class UserSerializer(serializers.ModelSerializer):
             # Check if duplicate exists
             if query.exists():
                 raise serializers.ValidationError({
-                    'name': f"A teacher with the name '{name}' already exists. Teacher names must be unique."
+                    'name': f"يوجد معلم بالاسم '{name}' بالفعل. يجب أن تكون أسماء المعلمين فريدة."
                 })
         
         return data
@@ -209,7 +209,7 @@ class PasswordResetRequestSerializer(serializers.Serializer):
             if user.user_type == 'student':
                 if not re.match(r'^01[0-2,5]{1}[0-9]{8}$', value):
                     raise serializers.ValidationError(
-                        'For students, username must be a valid Egyptian phone number (e.g., 01012345678)'
+                        'بالنسبة للطلاب، يجب أن يكون اسم المستخدم رقم هاتف مصري صالح (مثل 01012345678)'
                     )
         except User.DoesNotExist:
             # Don't reveal whether user exists or not for security
@@ -237,7 +237,7 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
             if user.user_type == 'student':
                 if not re.match(r'^01[0-2,5]{1}[0-9]{8}$', value):
                     raise serializers.ValidationError(
-                        'For students, username must be a valid Egyptian phone number (e.g., 01012345678)'
+                        'بالنسبة للطلاب، يجب أن يكون اسم المستخدم رقم هاتف مصري صالح (مثل 01012345678)'
                     )
         except User.DoesNotExist:
             # Don't reveal whether user exists or not for security

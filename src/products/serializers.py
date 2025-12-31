@@ -398,7 +398,7 @@ class ProductSerializer(serializers.ModelSerializer):
                 year_display = dict(Product._meta.get_field('year').choices).get(year, year)
                 error_parts.append(f"year '{year_display}'")
             
-            error_msg = f"A product with name '{name}' already exists for {', '.join(error_parts) if error_parts else 'this combination'}."
+            error_msg = f"يوجد منتج بالاسم '{name}' بالفعل لـ {', '.join(error_parts) if error_parts else 'هذا المزيج'}."
             raise serializers.ValidationError({'name': error_msg})
         
         return data
@@ -564,7 +564,7 @@ class CouponCodeField(serializers.Field):
         try:
             return CouponDiscount.objects.get(coupon=data)
         except CouponDiscount.DoesNotExist:
-            raise serializers.ValidationError("Coupon does not exist.")
+            raise serializers.ValidationError("الكوبون غير موجود.")
 
     def to_representation(self, value):
         return value.coupon
@@ -611,7 +611,7 @@ class RatingSerializer(serializers.ModelSerializer):
     def validate(self, data):
         star_number = data.get('star_number')
         if star_number is not None and (star_number < 1 or star_number > 5):
-            raise serializers.ValidationError("Star number must be between 1 and 5.")
+            raise serializers.ValidationError("يجب أن يكون عدد النجوم بين 1 و 5.")
         return data
 
     def create(self, validated_data):
@@ -658,7 +658,7 @@ class ProductImageBulkS3UploadSerializer(serializers.Serializer):
         """Validate that each image has an object_key"""
         for i, img in enumerate(value):
             if 'object_key' not in img:
-                raise serializers.ValidationError(f"Image at index {i} is missing 'object_key'")
+                raise serializers.ValidationError(f"الصورة في الموضع {i} تفتقد إلى 'object_key'")
         return value
     
     def create(self, validated_data):
@@ -902,7 +902,7 @@ class AdminLovedProductSerializer(serializers.ModelSerializer):
             product=data['product']
         ).exists():
             raise serializers.ValidationError({
-                'product': 'This product is already in the user\'s loved items'
+                'product': 'هذا المنتج موجود بالفعل في قائمة المفضلة للمستخدم'
             })
         return data
 
@@ -956,12 +956,12 @@ class PillCreateSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         items = attrs.get('items', [])
         if not items:
-            raise ValidationError({'items': ['At least one item is required']})
+            raise ValidationError({'items': ['يجب تحديد عنصر واحد على الأقل']})
 
         product_ids = [item['product'].id for item in items]
         duplicates = {pid for pid in product_ids if product_ids.count(pid) > 1}
         if duplicates:
-            raise ValidationError({'items': ['Duplicate products are not allowed in the same pill']})
+            raise ValidationError({'items': ['المنتجات المكررة غير مسموح بها في نفس الطلب']})
 
         return attrs
 
@@ -993,7 +993,7 @@ class PillCreateSerializer(serializers.ModelSerializer):
             filtered_items.append(item_data)
 
         if not filtered_items:
-            raise ValidationError({'items': ['All selected products are already owned']})
+            raise ValidationError({'items': ['جميع المنتجات المحددة مملوكة بالفعل']})
 
         with transaction.atomic():
             pill = Pill.objects.create(**validated_data)
@@ -1003,7 +1003,7 @@ class PillCreateSerializer(serializers.ModelSerializer):
                 product = item_data['product']
 
                 if not product.is_available:
-                    raise ValidationError({'items': [f'Product "{product.name}" is not available for purchase']})
+                    raise ValidationError({'items': [f'المنتج "{product.name}" غير متاح للشراء']})
 
                 pill_item = PillItem.objects.create(
                     user=user,
@@ -1208,9 +1208,9 @@ class DiscountSerializer(serializers.ModelSerializer):
 
     def validate(self, data):
         if not data.get('product') and not data.get('category'):
-            raise serializers.ValidationError("Either product or category must be set")
+            raise serializers.ValidationError("يجب تحديد المنتج أو الفئة")
         if data.get('product') and data.get('category'):
-            raise serializers.ValidationError("Cannot set both product and category")
+            raise serializers.ValidationError("لا يمكن تحديد المنتج والفئة في نفس الوقت")
         return data
 
 class LovedProductSerializer(serializers.ModelSerializer):
@@ -1232,11 +1232,11 @@ class LovedProductSerializer(serializers.ModelSerializer):
         user = getattr(request, 'user', None)
 
         if not user or not user.is_authenticated:
-            raise serializers.ValidationError({'detail': 'Authentication credentials were not provided.'})
+            raise serializers.ValidationError({'detail': 'لم يتم توفير بيانات الاعتماد.'})
 
         product = attrs['product']
         if LovedProduct.objects.filter(user=user, product=product).exists():
-            raise serializers.ValidationError({'product_id': 'This product is already in your loved list.'})
+            raise serializers.ValidationError({'product_id': 'هذا المنتج موجود بالفعل في قائمة المفضلة لديك.'})
 
         return attrs
 
@@ -1245,7 +1245,7 @@ class LovedProductSerializer(serializers.ModelSerializer):
         user = getattr(request, 'user', None)
 
         if not user or not user.is_authenticated:
-            raise serializers.ValidationError({'detail': 'Authentication credentials were not provided.'})
+            raise serializers.ValidationError({'detail': 'لم يتم توفير بيانات الاعتماد.'})
 
         return LovedProduct.objects.create(user=user, **validated_data)
 
@@ -1286,11 +1286,11 @@ class AdminLovedProductSerializer(serializers.ModelSerializer):
             if request_user and request_user.is_staff:
                 user = request_user
             else:
-                raise serializers.ValidationError({'user': 'User must be specified.'})
+                raise serializers.ValidationError({'user': 'يجب تحديد المستخدم.'})
 
         product = attrs['product']
         if LovedProduct.objects.filter(user=user, product=product).exists():
-            raise serializers.ValidationError({'product_id': 'This product is already in the loved list for this user.'})
+            raise serializers.ValidationError({'product_id': 'هذا المنتج موجود بالفعل في قائمة المفضلة لهذا المستخدم.'})
 
         attrs['user'] = user
         return attrs
@@ -1502,7 +1502,7 @@ class PillCouponApplySerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         coupon_code = attrs.get('coupon_code')
         if not coupon_code:
-            raise serializers.ValidationError({'coupon_code': 'A coupon code must be provided.'})
+            raise serializers.ValidationError({'coupon_code': 'يجب توفير رمز الكوبون.'})
 
         coupon_code = coupon_code.strip()
         pill = self.instance
@@ -1510,25 +1510,25 @@ class PillCouponApplySerializer(serializers.ModelSerializer):
         try:
             coupon = CouponDiscount.objects.get(coupon__iexact=coupon_code)
         except CouponDiscount.DoesNotExist:
-            raise serializers.ValidationError({'coupon_code': 'Coupon does not exist.'})
+            raise serializers.ValidationError({'coupon_code': 'الكوبون غير موجود.'})
 
         now = timezone.now()
         if coupon.coupon_start and coupon.coupon_start > now:
-            raise serializers.ValidationError({'coupon_code': 'Coupon is not yet active.'})
+            raise serializers.ValidationError({'coupon_code': 'الكوبون غير مفعل بعد.'})
         if coupon.coupon_end and coupon.coupon_end < now:
-            raise serializers.ValidationError({'coupon_code': 'Coupon has expired.'})
+            raise serializers.ValidationError({'coupon_code': 'انتهت صلاحية الكوبون.'})
         if coupon.available_use_times <= 0 and pill.coupon_id != coupon.id:
-            raise serializers.ValidationError({'coupon_code': 'This coupon has been fully used.'})
+            raise serializers.ValidationError({'coupon_code': 'تم استخدام هذا الكوبون بالكامل.'})
         if coupon.user_id and pill.user_id != coupon.user_id:
-            raise serializers.ValidationError({'coupon_code': 'Coupon is not valid for this user.'})
+            raise serializers.ValidationError({'coupon_code': 'الكوبون غير صالح لهذا المستخدم.'})
         if not coupon.discount_value or coupon.discount_value <= 0:
-            raise serializers.ValidationError({'coupon_code': 'Coupon does not have a valid discount value.'})
+            raise serializers.ValidationError({'coupon_code': 'الكوبون لا يحتوي على قيمة خصم صالحة.'})
 
         subtotal = self._calculate_subtotal(pill)
         if subtotal <= 0:
-            raise serializers.ValidationError({'coupon_code': 'Order total must be greater than zero to apply coupon.'})
+            raise serializers.ValidationError({'coupon_code': 'يجب أن يكون إجمالي الطلب أكبر من صفر لتطبيق الكوبون.'})
         if coupon.min_order_value and subtotal < coupon.min_order_value:
-            raise serializers.ValidationError({'coupon_code': f'Minimum order value for this coupon is {coupon.min_order_value}.'})
+            raise serializers.ValidationError({'coupon_code': f'الحد الأدنى لقيمة الطلب لهذا الكوبون هو {coupon.min_order_value}.'})
 
         discount_amount = subtotal * (coupon.discount_value / 100)
         discount_amount = min(subtotal, discount_amount)
@@ -1543,19 +1543,19 @@ class PillCouponApplySerializer(serializers.ModelSerializer):
         discount_amount = getattr(self, '_discount_amount', None)
 
         if coupon is None or discount_amount is None:
-            raise serializers.ValidationError({'coupon_code': 'Coupon validation failed.'})
+            raise serializers.ValidationError({'coupon_code': 'فشل التحقق من الكوبون.'})
 
         with transaction.atomic():
             try:
                 coupon_for_update = CouponDiscount.objects.select_for_update().get(pk=coupon.pk)
             except CouponDiscount.DoesNotExist:  # pragma: no cover - defensive
-                raise serializers.ValidationError({'coupon_code': 'Coupon does not exist.'})
+                raise serializers.ValidationError({'coupon_code': 'الكوبون غير موجود.'})
 
             if coupon_for_update.available_use_times <= 0 and instance.coupon_id != coupon_for_update.pk:
-                raise serializers.ValidationError({'coupon_code': 'This coupon has been fully used.'})
+                raise serializers.ValidationError({'coupon_code': 'تم استخدام هذا الكوبون بالكامل.'})
 
             if instance.coupon_id and instance.coupon_id != coupon_for_update.pk:
-                raise serializers.ValidationError({'coupon_code': 'A different coupon has already been applied to this order.'})
+                raise serializers.ValidationError({'coupon_code': 'تم تطبيق كوبون مختلف بالفعل على هذا الطلب.'})
 
             is_new_coupon = instance.coupon_id != coupon_for_update.pk
 
@@ -1565,7 +1565,7 @@ class PillCouponApplySerializer(serializers.ModelSerializer):
                     available_use_times__gt=0
                 ).update(available_use_times=F('available_use_times') - 1)
                 if not updated:
-                    raise serializers.ValidationError({'coupon_code': 'This coupon has reached its usage limit.'})
+                    raise serializers.ValidationError({'coupon_code': 'وصل هذا الكوبون إلى حد الاستخدام.'})
                 instance.coupon = coupon_for_update
 
             instance.coupon_discount = discount_amount
