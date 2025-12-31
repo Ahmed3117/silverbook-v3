@@ -4,8 +4,8 @@ from django.utils.html import format_html, mark_safe
 from django.utils import timezone
 from django.http import HttpResponse
 from .models import (
-    Category, SubCategory, Subject, Teacher, Product, ProductImage, ProductDescription,
-    PillItem, Pill, CouponDiscount, Rating, Discount, LovedProduct,
+    Subject, Teacher, Product, ProductImage,
+    PillItem, Pill, CouponDiscount, Discount, LovedProduct,
     SpecialProduct, BestProduct, PurchasedBook, PackageProduct
 )
 
@@ -46,30 +46,6 @@ class GovernmentListFilter(admin.SimpleListFilter):
             return queryset.filter(government=self.value())
         return queryset
 
-class SubCategoryInline(admin.TabularInline):
-    model = SubCategory
-    extra = 1
-
-@admin.register(Category)
-class CategoryAdmin(admin.ModelAdmin):
-    list_display = ('name', 'get_image_preview')
-    search_fields = ('name',)
-    inlines = [SubCategoryInline]
-
-    @admin.display(description='Image')
-    def get_image_preview(self, obj):
-        if obj.image:
-            return format_html('<img src="{}" width="50" height="50" />', obj.image.url)
-        return "No Image"
-
-# FIX: Added a dedicated admin for SubCategory with search_fields
-@admin.register(SubCategory)
-class SubCategoryAdmin(admin.ModelAdmin):
-    list_display = ('name', 'category')
-    search_fields = ('name', 'category__name')
-    autocomplete_fields = ('category',)
-    list_filter = ('category',)
-
 @admin.register(Subject)
 class SubjectAdmin(admin.ModelAdmin):
     list_display = ('name', 'created_at')
@@ -88,10 +64,6 @@ class ProductImageInline(admin.TabularInline):
     model = ProductImage
     extra = 1
 
-class ProductDescriptionInline(admin.TabularInline):
-    model = ProductDescription
-    extra = 1
-
 class DiscountInline(admin.TabularInline):
     model = Discount
     extra = 0
@@ -107,13 +79,12 @@ class PackageProductInline(admin.TabularInline):
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
-    list_display = ('name','product_number', 'type', 'get_image_preview', 'category', 'price', 'average_rating', 'date_added')
-    list_filter = ('category', 'type', 'date_added')
+    list_display = ('name','product_number', 'type', 'get_image_preview', 'subject', 'price', 'date_added')
+    list_filter = ('subject', 'type', 'date_added')
     search_fields = ('name', 'description')
-    autocomplete_fields = ('category', 'sub_category')
-    readonly_fields = ('average_rating', 'number_of_ratings')
-    inlines = [ProductImageInline, ProductDescriptionInline, DiscountInline, PackageProductInline]
-    list_select_related = ('category',)
+    autocomplete_fields = ('subject',)
+    inlines = [ProductImageInline, DiscountInline, PackageProductInline]
+    list_select_related = ('subject',)
 
     def get_inline_instances(self, request, obj=None):
         """Only show PackageProductInline for package type products"""
@@ -619,9 +590,9 @@ class PillAdmin(admin.ModelAdmin):
 @admin.register(Discount)
 class DiscountAdmin(admin.ModelAdmin):
     list_display = ('__str__', 'discount', 'discount_start', 'discount_end', 'is_active', 'is_currently_active')
-    list_filter = ('is_active', 'category')
-    search_fields = ('product__name', 'category__name')
-    autocomplete_fields = ('product', 'category')
+    list_filter = ('is_active',)
+    search_fields = ('product__name',)
+    autocomplete_fields = ('product',)
 
 @admin.register(CouponDiscount)
 class CouponDiscountAdmin(admin.ModelAdmin):
@@ -629,13 +600,6 @@ class CouponDiscountAdmin(admin.ModelAdmin):
     search_fields = ('coupon', 'user__username')
     readonly_fields = ('coupon',)
     autocomplete_fields = ['user']
-
-@admin.register(Rating)
-class RatingAdmin(admin.ModelAdmin):
-    list_display = ('product', 'user', 'star_number', 'date_added')
-    list_filter = ('star_number', 'date_added')
-    search_fields = ('product__name', 'user__username', 'review')
-    autocomplete_fields = ['product', 'user']
 
 @admin.register(SpecialProduct)
 class SpecialProductAdmin(admin.ModelAdmin):
@@ -674,7 +638,6 @@ class PackageProductAdmin(admin.ModelAdmin):
 
 
 admin.site.register(ProductImage)
-admin.site.register(ProductDescription)
 admin.site.register(PillItem)
 # admin.site.register(PillAddress)
 

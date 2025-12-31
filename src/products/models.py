@@ -69,28 +69,6 @@ def create_random_coupon():
     nums = ['0', '2', '3', '4', '5', '6', '7', '8', '9']
     return ''.join(random.choice(nums) for _ in range(11))
 
-class Category(models.Model):
-    name = models.CharField(max_length=100, unique=True)
-    image = models.ImageField(upload_to='categories/', null=True, blank=True)
-    created_at = models.DateTimeField(default=timezone.now)  
-    class Meta:
-        ordering = ['-created_at']  
-
-    def __str__(self):
-        return self.name
-
-class SubCategory(models.Model):
-    name = models.CharField(max_length=100)
-    category = models.ForeignKey(Category, on_delete=models.CASCADE, related_name='subcategories')
-    created_at = models.DateTimeField(default=timezone.now)  
-
-    class Meta:
-        ordering = ['-created_at']  
-        verbose_name_plural = 'Sub Categories'
-
-    def __str__(self):
-        return f"{self.category.name} - {self.name}"
-
 class Subject(models.Model):
     name = models.CharField(max_length=150)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -125,8 +103,6 @@ class Product(models.Model):
         default='book',
         help_text="Product type: Book or Package"
     )
-    category = models.ForeignKey(Category, on_delete=models.CASCADE, null=True, blank=True, related_name='products')
-    sub_category = models.ForeignKey(SubCategory, on_delete=models.CASCADE, null=True, blank=True, related_name='products')
     subject = models.ForeignKey(Subject, on_delete=models.CASCADE, null=True, blank=True, related_name='products')
     teacher = models.ForeignKey(Teacher, on_delete=models.CASCADE, null=True, blank=True, related_name='products')
     price = models.FloatField(null=True, blank=True)
@@ -155,61 +131,25 @@ class Product(models.Model):
         help_text="Main product cover image"
     )
     
-    # Metadata
-    page_count = models.PositiveIntegerField(
-        null=True,
-        blank=True,
-        help_text="Number of pages in the PDF"
-    )
-    file_size_mb = models.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        null=True,
-        blank=True,
-        help_text="File size in MB"
-    )
-    language = models.CharField(
-        max_length=2,
-        choices=[('ar', 'Arabic'), ('en', 'English')],
-        default='ar'
-    )
     is_available = models.BooleanField(
         default=True,
         help_text="Whether this digital book is available for purchase"
     )
     
     def get_current_discount(self):
-        """Returns the best active discount (either product or category level)"""
+        """Returns the active product discount"""
         now = timezone.now()
         product_discount = self.discounts.filter(
             is_active=True,
             discount_start__lte=now,
             discount_end__gte=now
         ).order_by('-discount').first()
-
-        category_discount = None
-        if self.category:
-            category_discount = self.category.discounts.filter(
-                is_active=True,
-                discount_start__lte=now,
-                discount_end__gte=now
-            ).order_by('-discount').first()
-
-        if product_discount and category_discount:
-            return max(product_discount, category_discount, key=lambda d: d.discount)
-        return product_discount or category_discount
+        return product_discount
 
     def price_after_product_discount(self):
         last_product_discount = self.discounts.last()
         if last_product_discount:
             return self.price - ((last_product_discount.discount / 100) * self.price)
-        return self.price
-
-    def price_after_category_discount(self):
-        if self.category:  
-            last_category_discount = self.category.discounts.last()
-            if last_category_discount:
-                return self.price - ((last_category_discount.discount / 100) * self.price)
         return self.price
 
     def discounted_price(self):
@@ -221,24 +161,8 @@ class Product(models.Model):
     def has_discount(self):
         return self.get_current_discount() is not None
 
-    def main_image(self):
-        """Get the main product image from ProductImage"""
-        images = self.images.all()
-        if images.exists():
-            return random.choice(images).image
-        return None
-
     def images(self):
         return self.images.all()
-
-    def number_of_ratings(self):
-        return self.ratings.count()
-
-    def average_rating(self):
-        ratings = self.ratings.all()
-        if ratings.exists():
-            return round(sum(rating.star_number for rating in ratings) / ratings.count(), 1)
-        return 0.0
 
     def __str__(self):
         return self.name
@@ -398,26 +322,6 @@ class ProductImage(models.Model):
 
     def __str__(self):
         return f"Image for {self.product.name}"
-
-class ProductDescription(models.Model):
-    product = models.ForeignKey(
-        Product, 
-        on_delete=models.CASCADE, 
-        related_name='descriptions'
-    )
-    title = models.CharField(max_length=200)
-    description = models.TextField()
-    order = models.PositiveIntegerField(default=0)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ['order', 'created_at']
-        verbose_name = 'Product Description'
-        verbose_name_plural = 'Product Descriptions'
-
-    def __str__(self):
-        return f"{self.title} - {self.product.name}"
 
 class PillItem(models.Model):
     pill = models.ForeignKey('Pill', on_delete=models.CASCADE, null=True, blank=True, related_name='pill_items')
@@ -626,33 +530,8 @@ class CouponDiscount(models.Model):
     class Meta:
         ordering = ['-created_at']
 
-class Rating(models.Model):
-    product = models.ForeignKey(
-        Product,
-        on_delete=models.CASCADE,
-        related_name='ratings'
-    )
-    user = models.ForeignKey(
-        User,
-        on_delete=models.CASCADE
-    )
-    star_number = models.IntegerField()
-    review = models.CharField(max_length=300, default="No review comment")
-    date_added = models.DateTimeField(auto_now_add=True)
-
-    def __str__(self):
-        return f"{self.star_number} stars for {self.product.name} by {self.user.username}"
-
-    def star_ranges(self):
-        return range(int(self.star_number)), range(5 - int(self.star_number))
-
-    class Meta:
-        ordering = ['-date_added']
-        unique_together = ('product', 'user')
-
 class Discount(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, null=True, blank=True, related_name='discounts')
-    category = models.ForeignKey(Category, on_delete=models.CASCADE, null=True, blank=True, related_name='discounts')
     discount = models.FloatField(validators=[MinValueValidator(0), MaxValueValidator(100)])
     discount_start = models.DateTimeField()
     discount_end = models.DateTimeField()
@@ -663,14 +542,12 @@ class Discount(models.Model):
         ordering = ['-created_at']
 
     def __str__(self):
-        target = f"Product: {self.product.name}" if self.product else f"Category: {self.category.name}"
+        target = f"Product: {self.product.name}" if self.product else "No Product"
         return f"{self.discount}% discount on {target}"
 
     def clean(self):
-        if not self.product and not self.category:
-            raise ValidationError("Either product or category must be set")
-        if self.product and self.category:
-            raise ValidationError("Cannot set both product and category")
+        if not self.product:
+            raise ValidationError("Product must be set")
 
     def save(self, *args, **kwargs):
         self.full_clean()

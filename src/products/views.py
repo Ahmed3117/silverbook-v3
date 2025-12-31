@@ -21,29 +21,15 @@ from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.views import APIView
 from .serializers import *
-from .filters import CategoryFilter, CouponDiscountFilter, PillFilter, ProductFilter, PurchasedBookFilter
+from .filters import CouponDiscountFilter, PillFilter, ProductFilter, PurchasedBookFilter
 from .models import (
-    Category, CouponDiscount,
-    ProductImage, Rating, SubCategory, Product, Pill,
+    CouponDiscount,
+    ProductImage, Product, Pill,
     PurchasedBook, PillItem, Subject, Teacher
 )
 from accounts.models import User
 from .permissions import IsOwner, IsOwnerOrReadOnly
 from services.s3_service import s3_service
-
-class CategoryListView(generics.ListAPIView):
-    queryset = Category.objects.all()
-    serializer_class = CategorySerializer
-    permission_classes = [IsAuthenticated]
-    filter_backends = [DjangoFilterBackend]
-    filterset_class = CategoryFilter
-    
-class SubCategoryListView(generics.ListAPIView):
-    queryset = SubCategory.objects.all()
-    permission_classes = [IsAuthenticated]
-    serializer_class = SubCategorySerializer
-    filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['category','category__type']
 
 class SubjectListView(generics.ListAPIView):
     queryset = Subject.objects.all()
@@ -77,7 +63,7 @@ class ProductListView(generics.ListAPIView):
     serializer_class = ProductSerializer
     filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter]
     filterset_class = ProductFilter
-    search_fields = ['name', 'category__name', 'subject__name' , 'teacher__name', 'description']
+    search_fields = ['name', 'subject__name' , 'teacher__name', 'description']
 
 
 class ProductDetailView(generics.RetrieveAPIView):
@@ -440,105 +426,6 @@ class AddFreeBookView(APIView):
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
-class RatingPagination(CustomPageNumberPagination):
-    page_size = 10
-    page_size_query_param = 'page_size'
-    max_page_size = 100
-
-class ProductRatingListCreateView(generics.ListCreateAPIView):
-    serializer_class = RatingSerializer
-    pagination_class = RatingPagination
-
-    def get_permissions(self):
-        if self.request.method == 'GET':
-            return [AllowAny()]
-        return [IsAuthenticated()]
-
-    def get_queryset(self):
-        return (
-            Rating.objects.filter(product_id=self.kwargs['product_id'])
-            .select_related('user')
-            .order_by('-date_added')
-        )
-
-    def _get_product(self):
-        if not hasattr(self, '_product_cache'):
-            self._product_cache = get_object_or_404(Product, pk=self.kwargs['product_id'])
-        return self._product_cache
-
-    def list(self, request, *args, **kwargs):
-        product = self._get_product()
-        queryset = self.get_queryset()
-
-        stats = queryset.aggregate(avg=Avg('star_number'), count=Count('id'))
-        average = stats['avg']
-        average = round(float(average), 1) if average is not None else 0.0
-        ratings_count = stats['count'] or 0
-
-        current_user_rating = None
-        user = request.user if request.user.is_authenticated else None
-        if user:
-            user_rating = queryset.filter(user=user).first()
-            if user_rating:
-                current_user_rating = self.get_serializer(user_rating).data
-
-        page = self.paginate_queryset(queryset)
-        pagination = None
-        if page is not None:
-            ratings_data = self.get_serializer(page, many=True).data
-            paginator = self.paginator
-            pagination = {
-                'count': paginator.page.paginator.count,
-                'total_pages': paginator.page.paginator.num_pages,
-                'current_page': paginator.page.number,
-                'next': paginator.get_next_link(),
-                'previous': paginator.get_previous_link(),
-                'page_size': paginator.get_page_size(self.request),
-            }
-        else:
-            ratings_data = self.get_serializer(queryset, many=True).data
-
-        return Response(
-            {
-                'product_id': product.id,
-                'product_number': product.product_number,
-                'product_name': product.name,
-                'average_rating': average,
-                'ratings_count': ratings_count,
-                'current_user_rating': current_user_rating,
-                'ratings': ratings_data,
-                'pagination': pagination,
-            },
-            status=status.HTTP_200_OK
-        )
-
-    def perform_create(self, serializer):
-        product = self._get_product()
-        user = self.request.user
-        if Rating.objects.filter(product=product, user=user).exists():
-            raise ValidationError('You already rated this product. Use the update endpoint instead.')
-        serializer.save(user=user, product=product)
-
-
-class ProductRatingDetailView(generics.RetrieveUpdateDestroyAPIView):
-    serializer_class = RatingSerializer
-    permission_classes = [IsAuthenticated, IsOwner]
-
-    def get_queryset(self):
-        return Rating.objects.filter(
-            product_id=self.kwargs['product_id'],
-            user=self.request.user
-        )
-
-
-class RatingByIdOwnerDetailView(generics.RetrieveUpdateDestroyAPIView):
-    """Allow retrieve/update/delete of a Rating by its id. Owner-only."""
-    queryset = Rating.objects.all()
-    serializer_class = RatingSerializer
-    permission_classes = [IsAuthenticated, IsOwner]
-    lookup_field = 'pk'
-
-
 class ProductsWithActiveDiscountAPIView(APIView):
     def get(self, request):
         now = timezone.now()
@@ -548,15 +435,7 @@ class ProductsWithActiveDiscountAPIView(APIView):
             discount_end__gte=now,
             product__isnull=False
         ).values_list('product_id', flat=True)
-        category_discounts = Discount.objects.filter(
-            is_active=True,
-            discount_start__lte=now,
-            discount_end__gte=now,
-            category__isnull=False
-        ).values_list('category_id', flat=True)
-        products = Product.objects.filter(
-            Q(id__in=product_discounts) | Q(category_id__in=category_discounts)
-        ).distinct()
+        products = Product.objects.filter(id__in=product_discounts).distinct()
         serializer = ProductSerializer(products, many=True, context={'request': request})
         return Response(serializer.data, status=status.HTTP_200_OK)
 
@@ -570,9 +449,9 @@ class LovedProductListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         return LovedProduct.objects.filter(user=self.request.user).select_related(
-            'product', 'product__category', 'product__subject', 
-            'product__teacher', 'product__sub_category'
-        ).prefetch_related('product__images', 'product__descriptions')
+            'product', 'product__subject', 
+            'product__teacher'
+        ).prefetch_related('product__images')
 
     def perform_create(self, serializer):
         serializer.save()
@@ -584,9 +463,9 @@ class LovedProductRetrieveDestroyView(generics.RetrieveDestroyAPIView):
 
     def get_queryset(self):
         return LovedProduct.objects.filter(user=self.request.user).select_related(
-            'product', 'product__category', 'product__subject', 
-            'product__teacher', 'product__sub_category'
-        ).prefetch_related('product__images', 'product__descriptions')
+            'product', 'product__subject', 
+            'product__teacher'
+        ).prefetch_related('product__images')
 
     def get_object(self):
         product_id = self.kwargs.get('product_id')
@@ -600,7 +479,6 @@ class NewArrivalsView(generics.ListAPIView):
     serializer_class = ProductSerializer
     filter_backends = [DjangoFilterBackend]
     permission_classes = [IsAuthenticated]
-    filterset_fields = ['category', 'sub_category']
 
     def get_queryset(self):
         queryset = Product.objects.all().order_by('-date_added')
@@ -614,7 +492,6 @@ class BestSellersView(generics.ListAPIView):
     serializer_class = ProductSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['category', 'sub_category']
 
     def get_queryset(self):
         # Get products with paid/delivered items
@@ -694,8 +571,6 @@ class ProductRecommendationsView(generics.ListAPIView):
         if current_product_id:
             current_product = get_object_or_404(Product, id=current_product_id)
             similar_products = Product.objects.filter(
-                Q(category=current_product.category) |
-                Q(sub_category=current_product.sub_category) |
                 Q(subject=current_product.subject) |
                 Q(teacher=current_product.teacher)
             ).exclude(id=current_product_id).distinct()
@@ -758,12 +633,12 @@ class PillItemRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
         'user', 'product', 'pill'
     )
     serializer_class = AdminPillItemSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminUser]
     lookup_field = 'pk'
 
     def perform_destroy(self, instance):
         if instance.pill and instance.pill.status == 'p':
-            raise serializers.ValidationError("Cannot delete items from paid/delivered pills")
+            raise serializers.ValidationError("لا يمكن حذف عنصر من فاتورة تم توصيلها او مدفوعة.")
         instance.delete()
 
 
@@ -878,30 +753,6 @@ class AdminLovedProductRetrieveDestroyView(generics.RetrieveDestroyAPIView):
     lookup_field = 'pk'
     permission_classes = [IsAdminUser]
 
-class CategoryListCreateView(generics.ListCreateAPIView):
-    queryset = Category.objects.all()
-    serializer_class = CategorySerializer
-    filter_backends = [DjangoFilterBackend]
-    filterset_class = CategoryFilter
-    permission_classes = [IsAdminUser]
-
-class CategoryRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = Category.objects.all()
-    serializer_class = CategorySerializer
-    permission_classes = [IsAdminUser]
-
-class SubCategoryListCreateView(generics.ListCreateAPIView):
-    queryset = SubCategory.objects.all()
-    serializer_class = SubCategorySerializer
-    filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['category','category__type']
-    
-
-class SubCategoryRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = SubCategory.objects.all()
-    serializer_class = SubCategorySerializer
-    permission_classes = [IsAdminUser]
-
 class SubjectListCreateView(generics.ListCreateAPIView):
     queryset = Subject.objects.all()
     serializer_class = SubjectSerializer
@@ -972,7 +823,7 @@ class ProductListCreateView(generics.ListCreateAPIView):
     serializer_class = AdminProductSerializer
     filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter]
     filterset_class = ProductFilter
-    search_fields = ['name', 'category__name', 'description']
+    search_fields = ['name', 'description']
     pagination_class = CustomPageNumberPagination
     permission_classes = [IsAdminUser]  # Changed for testing - change back to IsAdminUser in production
 
@@ -981,7 +832,7 @@ class ProductListBreifedView(generics.ListCreateAPIView):
     serializer_class = ProductBreifedSerializer
     filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter]
     filterset_class = ProductFilter
-    search_fields = ['name', 'category__name', 'description']
+    search_fields = ['name', 'description']
     permission_classes = [IsAdminUser]
 
 class ProductSimpleListView(generics.ListAPIView):
@@ -1098,51 +949,12 @@ class ProductImageDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = ProductImageSerializer
     permission_classes = [IsAdminUser]
 
-class ProductDescriptionListCreateView(generics.ListCreateAPIView):
-    queryset = ProductDescription.objects.all()
-    serializer_class = ProductDescriptionSerializer
-    filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['product']
-    permission_classes = [IsAdminUser]
-
-    def get_serializer_class(self):
-        if self.request.method == 'POST' and isinstance(self.request.data, list):
-            return ProductDescriptionCreateSerializer
-        return ProductDescriptionSerializer
-
-class ProductDescriptionBulkCreateView(generics.CreateAPIView):
-    queryset = ProductDescription.objects.all()
-    permission_classes = [IsAdminUser]
-
-    def get_serializer_class(self):
-        if isinstance(self.request.data, list):
-            class BulkSerializer(ProductDescriptionCreateSerializer):
-                class Meta(ProductDescriptionCreateSerializer.Meta):
-                    list_serializer_class = BulkProductDescriptionSerializer
-            return BulkSerializer
-        return ProductDescriptionCreateSerializer
-
-    def create(self, request, *args, **kwargs):
-        if isinstance(request.data, list):
-            serializer = self.get_serializer(data=request.data, many=True)
-        else:
-            serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        self.perform_create(serializer)
-        headers = self.get_success_headers(serializer.data)
-        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
-
-class ProductDescriptionRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = ProductDescription.objects.all()
-    serializer_class = ProductDescriptionSerializer
-    permission_classes = [IsAdminUser]
-
 class SpecialProductListCreateView(generics.ListCreateAPIView):
     queryset = SpecialProduct.objects.all()
     serializer_class = AdminSpecialProductSerializer
     filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter]
     filterset_fields = ['is_active', 'product']
-    search_fields = ['product__name', 'product__category__name']
+    search_fields = ['product__name', 'product__subject__name']
     ordering_fields = ['order', 'created_at']
     permission_classes = [IsAdminUser]
     # Allow multipart/form-data for file uploads
@@ -1162,7 +974,7 @@ class BestProductListCreateView(generics.ListCreateAPIView):
     serializer_class = AdminBestProductSerializer
     filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter]
     filterset_fields = ['is_active', 'product']
-    search_fields = ['product__name', 'product__category__name']
+    search_fields = ['product__name', 'product__subject__name']
     ordering_fields = ['order', 'created_at']
     permission_classes = [IsAdminUser]
 
@@ -1229,9 +1041,9 @@ class PillItemsListView(generics.ListAPIView):
     def get_queryset(self):
         pill_id = self.kwargs.get('pk')
         return PillItem.objects.filter(pill_id=pill_id).select_related(
-            'product', 'product__teacher', 'product__category', 
-            'product__subject', 'product__sub_category'
-        ).prefetch_related('product__images', 'product__descriptions')
+            'product', 'product__teacher', 
+            'product__subject'
+        ).prefetch_related('product__images')
 
 
 class DiscountListCreateView(generics.ListCreateAPIView):
@@ -1239,7 +1051,7 @@ class DiscountListCreateView(generics.ListCreateAPIView):
     serializer_class = DiscountSerializer
     permission_classes = [IsAdminUser]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['product', 'category', 'is_active']
+    filterset_fields = ['product', 'is_active']
 
 class DiscountRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Discount.objects.all()
@@ -1277,19 +1089,6 @@ class BulkCouponCreateView(generics.CreateAPIView):
             'count': len(coupons),
             'coupons': output_serializer.data
         }, status=status.HTTP_201_CREATED)
-
-
-class RatingListCreateView(generics.ListCreateAPIView):
-    queryset = Rating.objects.all()
-    serializer_class = RatingSerializer
-    filterset_fields = ['product']
-    permission_classes = [IsAdminUser]
-
-class RatingDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = Rating.objects.all()
-    serializer_class = RatingSerializer
-    permission_classes = [IsAdminUser]
-
 
 
 from rest_framework.decorators import api_view, permission_classes
@@ -1494,7 +1293,6 @@ class AdminPurchasedBookListCreateView(generics.ListCreateAPIView):
     """
     queryset = PurchasedBook.objects.all().select_related(
         'user', 'product', 'pill', 'pill_item',
-        'product__category', 'product__sub_category', 
         'product__subject', 'product__teacher'
     )
     serializer_class = PurchasedBookSerializer
@@ -1613,7 +1411,6 @@ class AdminUserPurchasedBooksView(generics.ListAPIView):
         user_id = self.kwargs.get('user_id')
         return PurchasedBook.objects.filter(user_id=user_id).select_related(
             'user', 'product', 'pill', 'pill_item',
-            'product__category', 'product__sub_category',
             'product__subject', 'product__teacher'
         )
 
@@ -1755,22 +1552,16 @@ class MyPackageDetailsView(APIView):
                     'product_number': related.product_number,
                     'name': related.name,
                     'type': related.type,
-                    'category_id': related.category.id if related.category else None,
-                    'category_name': related.category.name if related.category else None,
                     'subject_id': related.subject.id if related.subject else None,
                     'subject_name': related.subject.name if related.subject else None,
                     'teacher_id': related.teacher.id if related.teacher else None,
                     'teacher_name': related.teacher.name if related.teacher else None,
                     'description': related.description,
                     'base_image': get_full_file_url(related.base_image, request) if related.base_image else None,
-                    'main_image': get_full_file_url(related.main_image(), request) if related.main_image() else None,
                     'pdf_file': get_full_file_url(related.pdf_file, request) if related.pdf_file else None,
                     'year': related.year,
-                    'language': related.language,
                     'is_available': related.is_available,
                     'date_added': related.date_added,
-                    'average_rating': related.average_rating(),
-                    'number_of_ratings': related.number_of_ratings(),
                 })
             
             return Response(books_list, status=status.HTTP_200_OK)
@@ -1818,21 +1609,15 @@ class ProductRelatedProductsView(APIView):
                     'product_number': related.product_number,
                     'name': related.name,
                     'type': related.type,
-                    'category_id': related.category.id if related.category else None,
-                    'category_name': related.category.name if related.category else None,
                     'subject_id': related.subject.id if related.subject else None,
                     'subject_name': related.subject.name if related.subject else None,
                     'teacher_id': related.teacher.id if related.teacher else None,
                     'teacher_name': related.teacher.name if related.teacher else None,
                     'description': related.description,
                     'base_image': get_full_file_url(related.base_image, request) if related.base_image else None,
-                    'main_image': get_full_file_url(related.main_image(), request) if related.main_image() else None,
                     'year': related.year,
-                    'language': related.language,
                     'is_available': related.is_available,
                     'date_added': related.date_added,
-                    'average_rating': related.average_rating(),
-                    'number_of_ratings': related.number_of_ratings(),
                 })
             
             return Response(books_list, status=status.HTTP_200_OK)
@@ -2038,7 +1823,6 @@ class PackageProductListView(generics.ListAPIView):
         'package_product__subject': ['exact'],
         'package_product__teacher': ['exact'],
         'package_product__type': ['exact'],
-        'package_product__category': ['exact'],
         'package_product__year': ['exact'],
     }
     pagination_class = CustomPageNumberPagination
@@ -2064,11 +1848,9 @@ class PackageProductListView(generics.ListAPIView):
         return PackageProduct.objects.filter(
             pk__in=pk_list
         ).select_related(
-            'package_product__category',
             'package_product__subject',
             'package_product__teacher',
         ).prefetch_related(
-            'package_product__package_products__related_product__category',
             'package_product__package_products__related_product__subject',
             'package_product__package_products__related_product__teacher'
         )
@@ -2105,22 +1887,16 @@ class PackageBooksListView(APIView):
                     'product_number': related.product_number,
                     'name': related.name,
                     'type': related.type,
-                    'category_id': related.category.id if related.category else None,
-                    'category_name': related.category.name if related.category else None,
                     'subject_id': related.subject.id if related.subject else None,
                     'subject_name': related.subject.name if related.subject else None,
                     'teacher_id': related.teacher.id if related.teacher else None,
                     'teacher_name': related.teacher.name if related.teacher else None,
                     'description': related.description,
                     'base_image': get_full_file_url(related.base_image, request) if related.base_image else None,
-                    'main_image': get_full_file_url(related.main_image(), request) if related.main_image() else None,
                     'pdf_file': get_full_file_url(related.pdf_file, request) if related.pdf_file else None,
                     'year': related.year,
-                    'language': related.language,
                     'is_available': related.is_available,
                     'date_added': related.date_added,
-                    'average_rating': related.average_rating(),
-                    'number_of_ratings': related.number_of_ratings(),
                 })
             
             return Response(books_list, status=status.HTTP_200_OK)

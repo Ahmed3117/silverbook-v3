@@ -45,8 +45,6 @@ def sales_analytics(request):
     
     # Query purchased books (these represent completed sales)
     purchased_books = PurchasedBook.objects.select_related(
-        'product__category',
-        'product__sub_category',
         'product__subject',
         'product__teacher'
     )
@@ -78,50 +76,6 @@ def sales_analytics(request):
             total=Sum('price_at_sale')
         )['total'] or 0.0)
     }
-    
-    # Categories analytics
-    categories_data = purchased_books.filter(
-        product__category__isnull=False
-    ).values(
-        'product__category__id',
-        'product__category__name'
-    ).annotate(
-        count=Count('id')
-    ).order_by(f'{order_prefix}count')
-    
-    if limit is not None:
-        categories_data = categories_data[:limit]
-    
-    categories = [
-        {
-            'id': item['product__category__id'],
-            'name': item['product__category__name'],
-            'count': item['count']
-        }
-        for item in categories_data
-    ]
-    
-    # Subcategories analytics
-    subcategories_data = purchased_books.filter(
-        product__sub_category__isnull=False
-    ).values(
-        'product__sub_category__id',
-        'product__sub_category__name'
-    ).annotate(
-        count=Count('id')
-    ).order_by(f'{order_prefix}count')
-    
-    if limit is not None:
-        subcategories_data = subcategories_data[:limit]
-    
-    subcategories = [
-        {
-            'id': item['product__sub_category__id'],
-            'name': item['product__sub_category__name'],
-            'count': item['count']
-        }
-        for item in subcategories_data
-    ]
     
     # Subjects analytics
     subjects_data = purchased_books.filter(
@@ -180,8 +134,6 @@ def sales_analytics(request):
     # Prepare response data
     data = {
         'summary': summary,
-        'categories': categories,
-        'subcategories': subcategories,
         'subjects': subjects,
         'teachers': teachers,
         'years': years
@@ -229,8 +181,6 @@ def best_seller_products(request):
         'product__id',
         'product__name',
         'product__price',
-        'product__category__name',
-        'product__sub_category__name',
         'product__subject__name',
         'product__teacher__name',
         'product__year'
@@ -248,8 +198,6 @@ def best_seller_products(request):
             'id': item['product__id'],
             'name': item['product__name'],
             'price': item['product__price'],
-            'category': item['product__category__name'],
-            'subcategory': item['product__sub_category__name'],
             'subject': item['product__subject__name'],
             'teacher': item['product__teacher__name'],
             'year': item['product__year'],
