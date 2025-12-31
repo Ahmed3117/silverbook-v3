@@ -163,26 +163,28 @@ EMAIL_HOST_PASSWORD = 'meczfpooichwkudl'
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'accounts.authentication.MultiDeviceJWTAuthentication',  # Custom JWT auth with multi-device enforcement for students
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
     ],
     'DEFAULT_FILTER_BACKENDS': [
         'django_filters.rest_framework.DjangoFilterBackend'
     ],
     
-    #'DEFAULT_THROTTLE_CLASSES': [
-    #    'rest_framework.throttling.AnonRateThrottle',    # For anonymous users
-    #    'rest_framework.throttling.UserRateThrottle',    # For authenticated users
-    #],
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',    # For anonymous users
+        'rest_framework.throttling.UserRateThrottle',    # For authenticated users
+    ],
 
-    #'DEFAULT_THROTTLE_RATES': {
-    #    'anon': '200/day',   # Limit anonymous users to 10 requests per day
-    #    'user': '3000/hour' # Limit authenticated users to 1000 requests per hour
-    #},
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '200/day',   # Limit anonymous users to 10 requests per day
+        'user': '3000/hour' # Limit authenticated users to 1000 requests per hour
+    },
+    "DEFAULT_RENDERER_CLASSES": [
+        'rest_framework.renderers.JSONRenderer',
+    ],
 
     'DEFAULT_PAGINATION_CLASS': 'accounts.pagination.CustomPageNumberPagination',
     'PAGE_SIZE': 100,
 }
-
 
 
 
