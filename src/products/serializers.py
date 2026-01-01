@@ -1332,6 +1332,7 @@ class PurchasedBookSerializer(serializers.ModelSerializer):
     subject_name = serializers.SerializerMethodField()
     teacher_id = serializers.SerializerMethodField()
     teacher_name = serializers.SerializerMethodField()
+    base_image = serializers.SerializerMethodField()
     pdf_file = serializers.SerializerMethodField()
     related_products = serializers.SerializerMethodField()
 
@@ -1343,7 +1344,7 @@ class PurchasedBookSerializer(serializers.ModelSerializer):
             'pill', 'pill_id', 'pill_number',
             'pill_item', 'product_name', 'created_at',
             'name', 'type', 'year', 'subject_id', 'subject_name',
-            'teacher_id', 'teacher_name', 'pdf_file', 'related_products'
+            'teacher_id', 'teacher_name', 'base_image', 'pdf_file', 'related_products'
         ]
         read_only_fields = ['id', 'created_at', 'product_id', 'pill_id', 'pill_number']
 
@@ -1387,6 +1388,12 @@ class PurchasedBookSerializer(serializers.ModelSerializer):
     def get_teacher_name(self, obj):
         product = self._product(obj)
         return product.teacher.name if product and product.teacher else None
+
+    def get_base_image(self, obj):
+        product = self._product(obj)
+        if product and product.base_image:
+            return self._build_absolute_uri(product.base_image.url)
+        return None
 
     def get_pdf_file(self, obj):
         product = self._product(obj)
