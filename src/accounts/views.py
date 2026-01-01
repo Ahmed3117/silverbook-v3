@@ -242,12 +242,12 @@ def request_password_reset(request):
             user.otp_created_at = timezone.now()
             user.save()
             
-            message = f'Your PIN code is {otp}'
+            message = f'كود تغير الباسورد الخاص بيك هو {otp}'
             # Send OTP to username (which is a phone number)
             sms_response = send_beon_sms(phone_numbers=username, message=message)
 
             if sms_response.get('success'):
-                return Response({'message': 'OTP sent to your phone via SMS'})
+                return Response({'message': 'تم إرسال رمز التحقق إلى رقم هاتفك عبر الرسائل القصيرة'})
             else:
                 return Response({'error': 'فشل إرسال رمز التحقق عبر الرسائل القصيرة.'}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
@@ -276,7 +276,7 @@ def reset_password_confirm(request):
             user.otp_created_at = None
             user.save()
             
-            return Response({'message': 'Password reset successful'})
+            return Response({'message': 'تم إعادة تعيين كلمة المرور بنجاح'})
         except Exception as e:
             return Response({'error': 'حدث خطأ، يرجى المحاولة لاحقًا.'}, status=status.HTTP_400_BAD_REQUEST)
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -346,8 +346,8 @@ class DeleteAccountView(APIView):
         user.delete()
         return Response(
             {
-                'message': 'Account deleted successfully.',
-                'username': username
+            'message': 'تم حذف الحساب بنجاح.',
+            'username': username
             },
             status=status.HTTP_200_OK
         )
@@ -374,7 +374,7 @@ def change_password(request):
         update_session_auth_hash(request, user)
         
         return Response(
-            {'message': 'Password updated successfully'}, 
+            {'message': 'تم تحديث كلمة المرور بنجاح'}, 
             status=status.HTTP_200_OK
         )
     
@@ -417,7 +417,7 @@ class UserUpdateAPIView(APIView):
         try:
             user = User.objects.get(username=username)  # Changed to use username
         except User.DoesNotExist:
-            return Response({'error': 'المستخدم غير موجود'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': 'المستخدم غير موجود'}, status=status.HTTP_404_NOT_FOUND)
         
         serializer = UserSerializer(user, data=request.data, partial=True)
         if serializer.is_valid():
@@ -432,7 +432,7 @@ class UserDeleteAPIView(APIView):
         try:
             user = User.objects.get(pk=pk)
         except User.DoesNotExist:
-            return Response({'error': 'المستخدم غير موجود'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': 'المستخدم غير موجود'}, status=status.HTTP_404_NOT_FOUND)
         
         user.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -566,7 +566,7 @@ def update_student_max_devices(request, pk):
                 device.save(update_fields=['is_active'])
         
         return Response({
-            'message': f'Max devices updated to {new_max}',
+            'message': f'تم تحديث الحد الأقصى للأجهزة إلى {new_max}',
             'max_allowed_devices': new_max,
             'active_devices_count': UserDevice.objects.filter(user=student, is_active=True).count()
         })
@@ -655,7 +655,7 @@ def my_devices(request):
     user = request.user
     
     if user.user_type != 'student':
-        return Response({'message': 'Device tracking is only for students'}, status=status.HTTP_200_OK)
+        return Response({'message': 'تتبع الأجهزة متاح للطلاب فقط'}, status=status.HTTP_200_OK)
     
     devices = UserDevice.objects.filter(user=user, is_active=True)
     serializer = UserDeviceSerializer(devices, many=True)

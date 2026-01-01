@@ -1085,7 +1085,7 @@ class BulkCouponCreateView(generics.CreateAPIView):
         output_serializer = CouponDiscountSerializer(coupons, many=True)
         return Response({
             'success': True,
-            'message': f'{len(coupons)} coupons created successfully',
+            'message': f'تم إنشاء {len(coupons)} كوبون بنجاح',
             'count': len(coupons),
             'coupons': output_serializer.data
         }, status=status.HTTP_201_CREATED)
@@ -1378,7 +1378,7 @@ class AdminPurchasedBookListCreateView(generics.ListCreateAPIView):
             
             return Response({
                 'success': True,
-                'message': f'Successfully created {len(created_books)} purchased book(s)',
+                'message': f'تم إنشاء {len(created_books)} كتاب مشترى بنجاح',
                 'data': {
                     'created_books': created_books,
                     'skipped_books': skipped_books,
