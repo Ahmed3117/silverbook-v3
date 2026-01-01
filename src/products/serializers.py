@@ -1325,7 +1325,8 @@ class PurchasedBookSerializer(serializers.ModelSerializer):
     pill_item = serializers.PrimaryKeyRelatedField(queryset=PillItem.objects.all(), required=False, allow_null=True, write_only=True)
     
     product_number = serializers.SerializerMethodField()
-    name = serializers.SerializerMethodField()
+    student_name = serializers.SerializerMethodField()
+    student_phone = serializers.SerializerMethodField()
     type = serializers.SerializerMethodField()
     year = serializers.SerializerMethodField()
     subject_id = serializers.SerializerMethodField()
@@ -1340,10 +1341,10 @@ class PurchasedBookSerializer(serializers.ModelSerializer):
         model = PurchasedBook
         fields = [
             'id', 'user',
-            'product', 'product_id', 'product_number', 
+            'product', 'product_id', 'product_number',
             'pill', 'pill_id', 'pill_number',
             'pill_item', 'product_name', 'created_at',
-            'name', 'type', 'year', 'subject_id', 'subject_name',
+            'student_name', 'student_phone', 'type', 'year', 'subject_id', 'subject_name',
             'teacher_id', 'teacher_name', 'base_image', 'pdf_file', 'related_products'
         ]
         read_only_fields = ['id', 'created_at', 'product_id', 'pill_id', 'pill_number']
@@ -1361,9 +1362,14 @@ class PurchasedBookSerializer(serializers.ModelSerializer):
         product = self._product(obj)
         return product.product_number if product else None
 
-    def get_name(self, obj):
-        product = self._product(obj)
-        return product.name if product else None
+    def get_student_name(self, obj):
+        user = getattr(obj, 'user', None)
+        return user.name if user else None
+
+    def get_student_phone(self, obj):
+        user = getattr(obj, 'user', None)
+        # Historically `student_phone` may map to username in some responses
+        return user.username if user else None
 
     def get_type(self, obj):
         product = self._product(obj)
