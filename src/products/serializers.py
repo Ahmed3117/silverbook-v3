@@ -1315,6 +1315,7 @@ class PurchasedBookSerializer(serializers.ModelSerializer):
     # Read fields
     id = serializers.IntegerField(read_only=True)
     product_id = serializers.IntegerField(source='product.id', read_only=True)
+    name = serializers.CharField(source='product.name', read_only=True)
     pill_id = serializers.IntegerField(source='pill.id', read_only=True, allow_null=True)
     pill_number = serializers.CharField(source='pill.pill_number', read_only=True, allow_null=True)
     
@@ -1341,7 +1342,7 @@ class PurchasedBookSerializer(serializers.ModelSerializer):
         model = PurchasedBook
         fields = [
             'id', 'user',
-            'product', 'product_id', 'product_number',
+            'product', 'product_id', 'product_number','name',
             'pill', 'pill_id', 'pill_number',
             'pill_item', 'product_name', 'created_at',
             'student_name', 'student_phone', 'type', 'year', 'subject_id', 'subject_name',
