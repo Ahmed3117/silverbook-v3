@@ -431,9 +431,18 @@ class ProductBreifedSerializer(serializers.ModelSerializer):
 
 class SimpleProductSerializer(serializers.ModelSerializer):
     """Simple serializer for product listings with minimal fields"""
+    subject_name = serializers.SerializerMethodField()
+    teacher_name = serializers.SerializerMethodField()
+
     class Meta:
         model = Product
-        fields = ['id', 'name', 'type']
+        fields = ['id', 'name', 'type', 'subject_name', 'teacher_name']
+
+    def get_subject_name(self, obj):
+        return obj.subject.name if obj.subject else None
+
+    def get_teacher_name(self, obj):
+        return obj.teacher.name if obj.teacher else None
 
 class SimpleSubjectSerializer(serializers.ModelSerializer):
     """Simple serializer for subject listings with minimal fields"""

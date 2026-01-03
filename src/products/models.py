@@ -464,14 +464,32 @@ class Pill(models.Model):
             )
 
     def send_payment_notification(self):
-        """Notify the user that payment succeeded. Currently sends WhatsApp if parent_phone exists."""
-        phone = getattr(self.user, 'parent_phone', None)
+        """Notify the user that payment succeeded. Sends WhatsApp to user.username (phone number) with deeplink."""
+        from django.urls import reverse
+        
+        # Use username as phone number
+        phone = self.user.username
         if not phone:
-            logger.info("No parent_phone on file for user %s; skipping payment notification.", self.user_id)
+            logger.info("No username/phone on file for user %s; skipping payment notification.", self.user_id)
             return
 
         try:
-            prepare_whatsapp_message(phone, self)
+            # Build deeplink URL
+            deeplink_path = reverse('products:deeplink', args=['mybooks'])
+            deeplink_url = f"{settings.SITE_URL}{deeplink_path}"
+            
+            # Prepare WhatsApp message
+            message = (
+                f"الدفع تم بنجاح\n\n"
+                f"تقدر تشوف الكتب المتاحه في مكتبتك من هنا\n"
+                f"{deeplink_url}"
+            )
+            
+            send_whatsapp_message(
+                phone_number=phone,
+                message=message
+            )
+            logger.info("Payment notification sent to %s for pill %s", phone, self.pill_number)
         except Exception as exc:  # pragma: no cover - best effort notification
             logger.warning("Failed to send payment notification for pill %s: %s", self.pill_number, exc)
 
