@@ -1,7 +1,7 @@
 from datetime import timedelta
 import random
 import logging
-from django.shortcuts import get_object_or_404
+from django.shortcuts import get_object_or_404, render
 from django.db.models import Count, Sum, F, Avg
 from django.db import transaction
 import json
@@ -372,102 +372,36 @@ class DeeplinkView(APIView):
 
     def get(self, request, target):
         scheme = getattr(settings, 'DEEPLINK_SCHEME', 'com.easytech.booklet')
-        site_url = getattr(settings, 'SITE_URL', '')
+        site_url = getattr(settings, 'SITE_URL', '').strip()
 
         app_url = f"{scheme}://{target}"
-        web_fallback = f"{site_url}/app/{target}" if site_url else f"/app/{target}"
+        
+        # Build absolute fallback URL
+        if site_url:
+            # Ensure site_url starts with http:// or https://
+            if not site_url.startswith(('http://', 'https://')):
+                site_url = f"https://{site_url}"
+            web_fallback = f"{site_url}/products/app/{target}"
+        else:
+            # Fallback to request's domain if SITE_URL not set
+            web_fallback = request.build_absolute_uri(f"/products/app/{target}")
 
-        html = f"""<!doctype html>
-<html dir="rtl" lang="ar">
-    <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
-        <title>فتح التطبيق</title>
-        <style>
-            body {{
-                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                display: flex;
-                flex-direction: column;
-                justify-content: center;
-                align-items: center;
-                min-height: 100vh;
-                margin: 0;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                color: white;
-                text-align: center;
-                padding: 20px;
-                box-sizing: border-box;
-            }}
-            .container {{
-                background: rgba(255, 255, 255, 0.1);
-                padding: 40px 30px;
-                border-radius: 20px;
-                backdrop-filter: blur(10px);
-                box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
-                max-width: 400px;
-            }}
-            h1 {{
-                font-size: 24px;
-                margin-bottom: 20px;
-                font-weight: 600;
-            }}
-            p {{
-                font-size: 16px;
-                line-height: 1.6;
-                margin-bottom: 20px;
-            }}
-            .spinner {{
-                border: 4px solid rgba(255, 255, 255, 0.3);
-                border-top: 4px solid white;
-                border-radius: 50%;
-                width: 50px;
-                height: 50px;
-                animation: spin 1s linear infinite;
-                margin: 20px auto;
-            }}
-            @keyframes spin {{
-                0% {{ transform: rotate(0deg); }}
-                100% {{ transform: rotate(360deg); }}
-            }}
-            a {{
-                color: white;
-                text-decoration: none;
-                background: rgba(255, 255, 255, 0.2);
-                padding: 12px 24px;
-                border-radius: 8px;
-                display: inline-block;
-                margin-top: 15px;
-                font-weight: 500;
-                transition: background 0.3s;
-            }}
-            a:hover {{
-                background: rgba(255, 255, 255, 0.3);
-            }}
-        </style>
-        <script>
-            function openApp() {{
-                // Try opening custom scheme
-                window.location = "{app_url}";
-                // After a short delay, redirect to fallback web page
-                setTimeout(function() {{ 
-                    window.location = "{web_fallback}"; 
-                }}, 1500);
-            }}
-            window.onload = openApp;
-        </script>
-    </head>
-    <body>
-        <div class="container">
-            <h1>🎉 الدفع تم بنجاح</h1>
-            <div class="spinner"></div>
-            <p>جاري فتح التطبيق...</p>
-            <p style="font-size: 14px; opacity: 0.9;">تقدر تشوف الكتب المتاحة في مكتبتك الآن</p>
-            <a href="{web_fallback}">إذا لم يفتح التطبيق، اضغط هنا</a>
-        </div>
-    </body>
-</html>"""
+        context = {
+            'app_url': app_url,
+            'web_fallback': web_fallback
+        }
+        return render(request, 'products/deeplink.html', context)
 
-        return HttpResponse(html, content_type='text/html')
+
+class AppFallbackView(APIView):
+    """
+    Fallback page for users who don't have the app installed.
+    Shows download buttons for Play Store and App Store.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request, target='mybooks'):
+        return render(request, 'products/app_fallback.html')
 
 
 class ProductOwnedCheckView(APIView):

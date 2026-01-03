@@ -1,0 +1,93 @@
+<!doctype html>
+<html dir="rtl" lang="ar">
+    <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+        <title>فتح التطبيق</title>
+        <style>
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                align-items: center;
+                min-height: 100vh;
+                margin: 0;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                text-align: center;
+                padding: 20px;
+                box-sizing: border-box;
+            }
+            .container {
+                background: rgba(255, 255, 255, 0.1);
+                padding: 40px 30px;
+                border-radius: 20px;
+                backdrop-filter: blur(10px);
+                box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+                max-width: 400px;
+            }
+            h1 {
+                font-size: 24px;
+                margin-bottom: 20px;
+                font-weight: 600;
+            }
+            p {
+                font-size: 16px;
+                line-height: 1.6;
+                margin-bottom: 20px;
+            }
+            .spinner {
+                border: 4px solid rgba(255, 255, 255, 0.3);
+                border-top: 4px solid white;
+                border-radius: 50%;
+                width: 50px;
+                height: 50px;
+                animation: spin 1s linear infinite;
+                margin: 20px auto;
+            }
+            @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+            a {
+                color: white;
+                text-decoration: none;
+                background: rgba(255, 255, 255, 0.2);
+                padding: 12px 24px;
+                border-radius: 8px;
+                display: inline-block;
+                margin-top: 15px;
+                font-weight: 500;
+                transition: background 0.3s;
+            }
+            a:hover {
+                background: rgba(255, 255, 255, 0.3);
+            }
+        </style>
+        <script>
+            function openApp() {
+                // Try opening custom scheme in iframe to avoid page navigation
+                const iframe = document.createElement('iframe');
+                iframe.style.display = 'none';
+                iframe.src = "{{ app_url }}";
+                document.body.appendChild(iframe);
+                
+                // Remove iframe after attempt
+                setTimeout(function() {
+                    document.body.removeChild(iframe);
+                }, 1000);
+            }
+            window.onload = openApp;
+        </script>
+    </head>
+    <body>
+        <div class="container">
+            <h1>🎉 الدفع تم بنجاح</h1>
+            <div class="spinner"></div>
+            <p>جاري فتح التطبيق...</p>
+            <p style="font-size: 14px; opacity: 0.9;">تقدر تشوف الكتب المتاحة في مكتبتك الآن</p>
+            <a href="{{ web_fallback }}">إذا لم يفتح التطبيق، اضغط هنا</a>
+        </div>
+    </body>
+</html>

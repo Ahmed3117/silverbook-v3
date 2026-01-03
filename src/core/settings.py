@@ -293,7 +293,10 @@ ACTIVE_SITE_NAME = os.getenv('ACTIVE_SITE_NAME', 'silverbook')
 ACTIVE_PAYMENT_METHOD = os.getenv('ACTIVE_PAYMENT_METHOD', 'easypay').lower()  # 'shakeout' or 'easypay'
 
 # Site URL
-SITE_URL = os.getenv('SITE_URL', 'https://silverbook.easy-stream.net')
+SITE_URL = os.getenv('SITE_URL', 'http://127.0.0.1:9000')
+
+# Deeplink Configuration
+DEEPLINK_SCHEME = os.getenv('DEEPLINK_SCHEME', 'com.easytech.booklet')
 
 # Shake-out Configuration - with fallbacks and validation
 SHAKEOUT_API_KEY = os.getenv('SHAKEOUT_API_KEY', '')
