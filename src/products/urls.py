@@ -25,6 +25,7 @@ urlpatterns = [
     path('pills/<int:id>/', views.PillDetailView.as_view(), name='pill-detail'),
     path('user-pills/', views.UserPillsView.as_view(), name='user-pills'),
     path('my-books/', views.PurchasedBookListView.as_view(), name='purchased-books'),
+    path('deeplink/<str:target>/', views.DeeplinkView.as_view(), name='deeplink'),
     path('my-books/<int:purchased_book_id>/download/', views.PurchasedBookPDFDownloadView.as_view(), name='purchased-book-download'),
     path('<str:product_number>/add-free/', views.AddFreeBookView.as_view(), name='add-free-book'),
     path('<str:product_number>/owned/', views.ProductOwnedCheckView.as_view(), name='book-owned-check'),
