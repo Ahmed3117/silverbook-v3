@@ -203,3 +203,86 @@ class UserDevice(models.Model):
     def __str__(self):
         identifier = self.device_id[:20] if self.device_id else self.ip_address or 'No ID'
         return f"{self.user.username} - {self.device_name or 'Unknown'} ({identifier})"
+
+
+class OTP(models.Model):
+    """
+    One-Time Password model for phone verification
+    Used for: signup verification, password reset, phone verification, etc.
+    """
+    OTP_PURPOSE_CHOICES = [
+        ('signup', 'Signup Verification'),
+        ('password_reset', 'Password Reset'),
+        ('phone_verification', 'Phone Verification'),
+        ('other', 'Other'),
+    ]
+    
+    phone_number = models.CharField(
+        max_length=20,
+        help_text="Phone number to send OTP to"
+    )
+    otp_code = models.CharField(
+        max_length=6,
+        help_text="6-digit OTP code"
+    )
+    purpose = models.CharField(
+        max_length=30,
+        choices=OTP_PURPOSE_CHOICES,
+        default='signup',
+        help_text="Purpose of this OTP"
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='otps',
+        help_text="Associated user (if any)"
+    )
+    
+    # Tracking fields
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="When OTP was generated"
+    )
+    expires_at = models.DateTimeField(
+        help_text="When OTP expires"
+    )
+    
+    # Verification fields
+    is_verified = models.BooleanField(
+        default=False,
+        help_text="Whether OTP was successfully verified"
+    )
+    verified_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When OTP was verified"
+    )
+    is_used = models.BooleanField(
+        default=False,
+        help_text="Whether OTP has been used (prevents reuse)"
+    )
+    
+    # Security fields
+    verification_attempts = models.PositiveIntegerField(
+        default=0,
+        help_text="Number of failed verification attempts"
+    )
+    
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'OTP'
+        verbose_name_plural = 'OTPs'
+        indexes = [
+            models.Index(fields=['phone_number', 'purpose', '-created_at']),
+            models.Index(fields=['phone_number', 'is_used', 'is_verified']),
+        ]
+    
+    def __str__(self):
+        return f"{self.phone_number} - {self.purpose} - {self.otp_code[:2]}****"
+    
+    def is_expired(self):
+        """Check if OTP is expired"""
+        from django.utils import timezone
+        return timezone.now() > self.expires_at

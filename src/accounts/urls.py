@@ -4,13 +4,19 @@ from . import views
 app_name="accounts"
 
 urlpatterns = [
+    # OTP-based Signup
     path('signup/', views.signup, name='signup'),
+    path('signup/verify-otp/', views.verify_signup_otp, name='verify-signup-otp'),
+    path('signup/resend-otp/', views.resend_signup_otp, name='resend-signup-otp'),
+    
+    # Authentication
     path('signin/', views.signin, name='signin'),
     # Dashboard (admin) signin endpoint
     path('dashboard/signin/', views.signin_dashboard, name='signin-dashboard'),
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('password-reset/', views.request_password_reset, name='password_reset'),
     path('password-reset/confirm/', views.reset_password_confirm, name='password_reset_confirm'),
+    path('password-reset/resend-otp/', views.resend_password_reset_otp, name='resend-password-reset-otp'),
     path('update-user-data/', views.UpdateUserData.as_view(), name='update-user-data'),
     path('get-user-data/', views.GetUserData.as_view(), name='get-user-data'),
     path('orders/', views.UserOrdersView.as_view(), name='user-orders'),

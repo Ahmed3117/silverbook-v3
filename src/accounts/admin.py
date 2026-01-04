@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.utils.html import format_html
-from .models import User, UserProfileImage, UserDevice
+from .models import User, UserProfileImage, UserDevice,OTP
 
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
@@ -73,3 +73,6 @@ class UserDeviceAdmin(admin.ModelAdmin):
     @admin.action(description='Activate selected devices')
     def activate_devices(self, request, queryset):
         queryset.update(is_active=True)
+
+# register OTP model
+admin.site.register(OTP)

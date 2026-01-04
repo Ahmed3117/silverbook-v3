@@ -727,6 +727,35 @@ class CreatePaymentInvoiceView(APIView):
             pill = get_object_or_404(Pill, id=pill_id, user=request.user)
             logger.info(f"Pill found: {pill.pill_number}")
             
+            # Check if final price is 0 (100% discount applied)
+            final_price = pill.final_price()
+            if final_price == 0:
+                logger.info(f"Pill {pill_id} has final_price=0, granting books directly without payment invoice")
+                
+                # Update pill status to paid
+                pill.status = 'p'
+                pill.save(update_fields=['status'])
+                
+                # Grant purchased books to user (this is called automatically in pill.save when status='p')
+                # But calling explicitly for clarity
+                pill.grant_purchased_books()
+                
+                # Send payment notification
+                pill.send_payment_notification()
+                
+                return Response({
+                    'success': True,
+                    'message': 'تم تفعيل الكتب بنجاح! الكتب متاحة الآن في مكتبتك',
+                    'free_order': True,
+                    'data': {
+                        'pill_number': pill.pill_number,
+                        'pill_id': pill.id,
+                        'status': pill.get_status_display(),
+                        'final_price': 0,
+                        'books_granted': True
+                    }
+                }, status=status.HTTP_200_OK)
+            
             # Check stock availability before creating invoice
             logger.info(f"Checking stock availability for pill {pill_id}")
             availability_check = pill.check_all_items_availability()

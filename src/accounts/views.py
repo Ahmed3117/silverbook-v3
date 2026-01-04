@@ -80,13 +80,134 @@ from rest_framework.filters import SearchFilter, OrderingFilter
 from django.db.models import Count, Q
 
 
+# ============================================
+# OTP-Based Signup Flow
+# ============================================
+
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def signup(request):
+    """
+    Step 1: Validate user data and send OTP
+    
+    POST /accounts/signup/
+    {
+        "username": "01234567890",  // phone number
+        "password": "password123",
+        "name": "Student Name",
+        "user_type": "student",
+        "parent_phone": "01111111111",
+        "year": "first-secondary",
+        "division": "علمى",
+        "government": "1"
+    }
+    
+    Response:
+    {
+        "success": true,
+        "message": "تم إرسال رمز التحقق إلى رقم هاتفك",
+        "phone_number": "01234567890",
+        "expires_in_minutes": 10
+    }
+    """
+    from services.otp_service import otp_service
+    
     # Prevent admin registration - تسجيل الحساب للطلاب فقط
     if request.data.get('user_type') != 'student':
         return Response({'error': 'تسجيل الحساب للطلاب فقط'}, status=status.HTTP_400_BAD_REQUEST)
     
+    # Validate data using serializer (but don't save yet)
+    serializer = UserSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Check if username (phone number) already exists
+    username = request.data.get('username')
+    if User.objects.filter(username=username).exists():
+        return Response({'error': 'رقم الهاتف مسجل بالفعل'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Store validated data temporarily in session or cache
+    # For simplicity, we'll rely on client to resend data during verification
+    # In production, you might want to cache this data
+    
+    # Send OTP
+    otp_result = otp_service.send_otp(
+        phone_number=username,
+        purpose='signup'
+    )
+    
+    if otp_result['success']:
+        return Response({
+            'success': True,
+            'message': otp_result['message'],
+            'phone_number': username,
+            'expires_in_minutes': otp_result['expires_in_minutes']
+        }, status=status.HTTP_200_OK)
+    else:
+        return Response({
+            'error': otp_result.get('error', 'فشل إرسال رمز التحقق'),
+            'wait_time': otp_result.get('wait_time'),
+            'max_attempts_reached': otp_result.get('max_attempts_reached', False)
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def verify_signup_otp(request):
+    """
+    Step 2: Verify OTP and complete registration
+    
+    POST /accounts/signup/verify-otp/
+    {
+        "username": "01234567890",
+        "password": "password123",
+        "name": "Student Name",
+        "otp_code": "123456",
+        "user_type": "student",
+        "parent_phone": "01111111111",
+        "year": "first-secondary",
+        "division": "علمى",
+        "government": "1",
+        "device_id": "optional_device_id",
+        "device_name": "optional_device_name"
+    }
+    
+    Response:
+    {
+        "refresh": "token",
+        "access": "token"
+    }
+    """
+    from services.otp_service import otp_service
+    
+    username = request.data.get('username')
+    otp_code = request.data.get('otp_code')
+    
+    if not username or not otp_code:
+        return Response({
+            'error': 'رقم الهاتف ورمز التحقق مطلوبان'
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Verify OTP
+    verification_result = otp_service.verify_otp(
+        phone_number=username,
+        otp_code=otp_code,
+        purpose='signup'
+    )
+    
+    if not verification_result['success']:
+        return Response({
+            'error': verification_result['error'],
+            'error_code': verification_result.get('error_code'),
+            'remaining_attempts': verification_result.get('remaining_attempts')
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    # OTP verified successfully, now create user
+    # Prevent admin registration
+    if request.data.get('user_type') != 'student':
+        return Response({'error': 'تسجيل الحساب للطلاب فقط'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Validate and create user
     serializer = UserSerializer(data=request.data)
     if serializer.is_valid():
         user = serializer.save()
@@ -96,7 +217,7 @@ def signup(request):
         if user.user_type == 'student':
             # Get device info from request body (sent by mobile app)
             device_id = request.data.get('device_id')  # Unique ID from mobile app
-            device_name_from_request = request.data.get('device_name')  # e.g., "iPhone 15 Pro", "Samsung Galaxy S24"
+            device_name_from_request = request.data.get('device_name')
             
             # Auto-detect device info from request headers (fallback)
             device_info_data = get_device_info_from_request(request)
@@ -127,7 +248,62 @@ def signup(request):
             'refresh': str(refresh),
             'access': str(refresh.access_token),
         }, status=status.HTTP_201_CREATED)
+    
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def resend_signup_otp(request):
+    """
+    Resend OTP for signup (with 120-second rate limit)
+    
+    POST /accounts/signup/resend-otp/
+    {
+        "username": "01234567890"
+    }
+    
+    Response:
+    {
+        "success": true,
+        "message": "تم إعادة إرسال رمز التحقق",
+        "expires_in_minutes": 10
+    }
+    """
+    from services.otp_service import otp_service
+    
+    username = request.data.get('username')
+    if not username:
+        return Response({'error': 'رقم الهاتف مطلوب'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Check if username already exists
+    if User.objects.filter(username=username).exists():
+        return Response({'error': 'رقم الهاتف مسجل بالفعل'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Send OTP
+    otp_result = otp_service.send_otp(
+        phone_number=username,
+        purpose='signup'
+    )
+    
+    if otp_result['success']:
+        return Response({
+            'success': True,
+            'message': otp_result['message'],
+            'expires_in_minutes': otp_result['expires_in_minutes']
+        }, status=status.HTTP_200_OK)
+    else:
+        return Response({
+            'error': otp_result.get('error', 'فشل إرسال رمز التحقق'),
+            'wait_time': otp_result.get('wait_time'),
+            'max_attempts_reached': otp_result.get('max_attempts_reached', False)
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+# ============================================
+# End OTP-Based Signup Flow
+# ============================================
+
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -229,6 +405,12 @@ def signin_dashboard(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def request_password_reset(request):
+    """
+    Request password reset - Send OTP via WhatsApp
+    Uses the new generic OTP service with rate limiting and attempt tracking
+    """
+    from services.otp_service import otp_service
+    
     serializer = PasswordResetRequestSerializer(data=request.data)
     if serializer.is_valid():
         username = serializer.validated_data['username']
@@ -237,19 +419,26 @@ def request_password_reset(request):
             if not user:
                 return Response({'error': 'المستخدم غير موجود'}, status=status.HTTP_400_BAD_REQUEST)
             
-            otp = ''.join([str(random.randint(0, 9)) for _ in range(6)])
-            user.otp = otp
-            user.otp_created_at = timezone.now()
-            user.save()
+            # Use new OTP service
+            otp_result = otp_service.send_otp(
+                phone_number=username,
+                purpose='password_reset',
+                user=user
+            )
             
-            message = f'كود تغير الباسورد الخاص بيك هو {otp}'
-            # Send OTP to username (which is a phone number)
-            sms_response = send_beon_sms(phone_numbers=username, message=message)
-
-            if sms_response.get('success'):
-                return Response({'message': 'تم إرسال رمز التحقق إلى رقم هاتفك عبر الرسائل القصيرة'})
+            if otp_result['success']:
+                return Response({
+                    'success': True,
+                    'message': otp_result['message'],
+                    'expires_in_minutes': otp_result['expires_in_minutes']
+                }, status=status.HTTP_200_OK)
             else:
-                return Response({'error': 'فشل إرسال رمز التحقق عبر الرسائل القصيرة.'}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({
+                    'error': otp_result.get('error', 'فشل إرسال رمز التحقق'),
+                    'wait_time': otp_result.get('wait_time'),
+                    'max_attempts_reached': otp_result.get('max_attempts_reached', False)
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
         except Exception as e:
             return Response({'error': 'حدث خطأ، يرجى المحاولة لاحقًا.'}, status=status.HTTP_400_BAD_REQUEST)
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -257,6 +446,12 @@ def request_password_reset(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def reset_password_confirm(request):
+    """
+    Confirm password reset with OTP
+    Uses the new generic OTP service with verification attempt tracking
+    """
+    from services.otp_service import otp_service
+    
     serializer = PasswordResetConfirmSerializer(data=request.data)
     if serializer.is_valid():
         username = serializer.validated_data['username']
@@ -264,22 +459,80 @@ def reset_password_confirm(request):
         new_password = serializer.validated_data['new_password']
         
         try:
-            user = User.objects.filter(username=username, otp=otp).first()
+            user = User.objects.filter(username=username).first()
             if not user:
-                return Response({'error': 'رمز التحقق أو اسم المستخدم غير صحيح'}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({'error': 'اسم المستخدم غير صحيح'}, status=status.HTTP_400_BAD_REQUEST)
             
-            if user.otp_created_at < timezone.now() - timedelta(minutes=10):
-                return Response({'error': 'انتهت صلاحية رمز التحقق'}, status=status.HTTP_400_BAD_REQUEST)
+            # Verify OTP using new service
+            verification_result = otp_service.verify_otp(
+                phone_number=username,
+                otp_code=otp,
+                purpose='password_reset',
+                mark_as_used=True
+            )
             
+            if not verification_result['success']:
+                return Response({
+                    'error': verification_result['error'],
+                    'error_code': verification_result.get('error_code'),
+                    'remaining_attempts': verification_result.get('remaining_attempts')
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # OTP verified, reset password
             user.set_password(new_password)
-            user.otp = None
-            user.otp_created_at = None
             user.save()
             
-            return Response({'message': 'تم إعادة تعيين كلمة المرور بنجاح'})
+            return Response({
+                'success': True,
+                'message': 'تم إعادة تعيين كلمة المرور بنجاح'
+            }, status=status.HTTP_200_OK)
+            
         except Exception as e:
             return Response({'error': 'حدث خطأ، يرجى المحاولة لاحقًا.'}, status=status.HTTP_400_BAD_REQUEST)
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def resend_password_reset_otp(request):
+    """
+    Resend OTP for password reset (with 120-second rate limit)
+    
+    POST /accounts/password-reset/resend-otp/
+    {
+        "username": "01234567890"
+    }
+    """
+    from services.otp_service import otp_service
+    
+    username = request.data.get('username')
+    if not username:
+        return Response({'error': 'رقم الهاتف مطلوب'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Check if user exists
+    user = User.objects.filter(username=username).first()
+    if not user:
+        return Response({'error': 'المستخدم غير موجود'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Send OTP
+    otp_result = otp_service.send_otp(
+        phone_number=username,
+        purpose='password_reset',
+        user=user
+    )
+    
+    if otp_result['success']:
+        return Response({
+            'success': True,
+            'message': otp_result['message'],
+            'expires_in_minutes': otp_result['expires_in_minutes']
+        }, status=status.HTTP_200_OK)
+    else:
+        return Response({
+            'error': otp_result.get('error', 'فشل إرسال رمز التحقق'),
+            'wait_time': otp_result.get('wait_time'),
+            'max_attempts_reached': otp_result.get('max_attempts_reached', False)
+        }, status=status.HTTP_400_BAD_REQUEST)
 
 
 

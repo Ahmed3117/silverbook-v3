@@ -108,10 +108,23 @@ class PurchasedBookFilter(filters.FilterSet):
     product_name = filters.CharFilter(field_name='product_name', lookup_expr='icontains')
     username = filters.CharFilter(field_name='user__username', lookup_expr='icontains')
     user_name = filters.CharFilter(field_name='user__name', lookup_expr='icontains')
+    added_by = filters.CharFilter(method='filter_by_added_by')
 
     class Meta:
         model = PurchasedBook
         fields = ['user', 'product', 'pill']
+    
+    def filter_by_added_by(self, queryset, name, value):
+        """
+        Filter books by who added them:
+        - 'admin': Books added by admin directly (pill is null)
+        - 'student': Books added by students (pill has a value)
+        """
+        if value.lower() == 'admin':
+            return queryset.filter(pill__isnull=True)
+        elif value.lower() == 'student':
+            return queryset.filter(pill__isnull=False)
+        return queryset
         
         
         
