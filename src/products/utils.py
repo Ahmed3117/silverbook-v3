@@ -3,17 +3,21 @@ import requests
 from django.conf import settings
 
 def send_whatsapp_message(phone_number, message):
-    url = "https://whats.easytech-sotfware.com/api/v1/send-text"
-    params = {
-            "token": settings.WHATSAPP_TOKEN,
-            "instance_id": settings.WHATSAPP_ID,
-            "msg": message,
-            "jid": f"2{phone_number}@s.whatsapp.net"
-        }
+    """
+    Send SMS message using BeOn service.
+    This is a wrapper function to maintain backward compatibility.
+    Now uses SMS instead of WhatsApp for message delivery.
+    """
+    from services.beon_service import send_beon_sms
     
-    req = requests.get(url, params=params)
+    result = send_beon_sms(phone_number, message)
     
-    return req.json()
+    # Return format compatible with old implementation
+    if result['success']:
+        return result.get('data', {'status': 'success'})
+    else:
+        return {'error': result.get('error', 'Failed to send message')}
+
 
 
 
