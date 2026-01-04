@@ -692,6 +692,9 @@ class UserDeleteAPIView(APIView):
 
 class UserProfileImageListCreateView(generics.ListCreateAPIView):
     queryset = UserProfileImage.objects.all()
+    filter_backends = [OrderingFilter]
+    ordering_fields = ['id', 'created_at', 'updated_at']
+    ordering = ['-created_at']
 
     def get_permissions(self):
         if self.request.method == 'POST':
@@ -725,7 +728,8 @@ class AdminsListView(generics.ListAPIView):
     serializer_class = None
     permission_classes = [IsAdminUser]
     filter_backends = [SearchFilter, OrderingFilter, DjangoFilterBackend]
-    ordering_fields = ['created_at']
+    ordering_fields = ['id', 'created_at', 'username', 'name', 'email']
+    ordering = ['-created_at']
     search_fields = ['username', 'name', 'email', 'government']
     filterset_class = AdminUserFilter
 
@@ -742,7 +746,8 @@ class UsersListView(generics.ListAPIView):
     serializer_class = None
     permission_classes = [IsAdminUser]
     filter_backends = [SearchFilter, OrderingFilter, DjangoFilterBackend]
-    ordering_fields = ['created_at']
+    ordering_fields = ['id', 'created_at', 'username', 'name', 'email', 'year', 'division']
+    ordering = ['-created_at']
     search_fields = ['username', 'name', 'email', 'government']
     filterset_class = AdminUserFilter
 
@@ -772,7 +777,8 @@ class StudentDeviceListView(generics.ListAPIView):
     permission_classes = [IsAdminUser]
     filter_backends = [SearchFilter, OrderingFilter, DjangoFilterBackend]
     search_fields = ['username', 'name']
-    ordering_fields = ['created_at', 'username', 'name']
+    ordering_fields = ['id', 'created_at', 'username', 'name', 'max_allowed_devices']
+    ordering = ['-created_at']
     
     def get_queryset(self):
         return User.objects.filter(user_type='student', is_staff=False, is_superuser=False).prefetch_related('devices').order_by('-created_at')
