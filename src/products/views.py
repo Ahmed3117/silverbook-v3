@@ -802,8 +802,10 @@ class AdminLovedProductRetrieveDestroyView(generics.RetrieveDestroyAPIView):
 class SubjectListCreateView(generics.ListCreateAPIView):
     queryset = Subject.objects.all()
     serializer_class = SubjectSerializer
-    filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter]
+    filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter, OrderingFilter]
     search_fields = ['name']
+    ordering_fields = ['id', 'name', 'created_at']
+    ordering = ['-created_at']
     permission_classes = [IsAdminUser]
 
     def create(self, request, *args, **kwargs):
@@ -852,9 +854,11 @@ class TeacherListCreateView(generics.ListCreateAPIView):
     queryset = Teacher.objects.all()
     serializer_class = TeacherSerializer
     parser_classes = [MultiPartParser, FormParser, JSONParser]
-    filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter]
+    filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter, OrderingFilter]
     filterset_fields = ['subject']
     search_fields = ['name', 'subject__name']
+    ordering_fields = ['id', 'name', 'created_at']
+    ordering = ['-created_at']
     permission_classes = [IsAdminUser]
 
 class TeacherRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
@@ -867,18 +871,22 @@ class TeacherRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
 class ProductListCreateView(generics.ListCreateAPIView):
     queryset = Product.objects.all()
     serializer_class = AdminProductSerializer
-    filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter]
+    filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter, OrderingFilter]
     filterset_class = ProductFilter
     search_fields = ['name', 'description']
+    ordering_fields = ['id', 'name', 'price', 'date_added', 'year']
+    ordering = ['-date_added']
     pagination_class = CustomPageNumberPagination
     permission_classes = [IsAdminUser]  # Changed for testing - change back to IsAdminUser in production
 
 class ProductListBreifedView(generics.ListCreateAPIView):
     queryset = Product.objects.all()
     serializer_class = ProductBreifedSerializer
-    filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter]
+    filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter, OrderingFilter]
     filterset_class = ProductFilter
     search_fields = ['name', 'description']
+    ordering_fields = ['id', 'name', 'price', 'date_added', 'year']
+    ordering = ['-date_added']
     permission_classes = [IsAdminUser]
 
 class ProductSimpleListView(generics.ListAPIView):
@@ -918,7 +926,10 @@ class ProductRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
 class ProductImageListCreateView(generics.ListCreateAPIView):
     queryset = ProductImage.objects.all()
     serializer_class = ProductImageSerializer
+    filter_backends = [DjangoFilterBackend, OrderingFilter]
     filterset_fields = ['product']
+    ordering_fields = ['id', 'created_at', 'product']
+    ordering = ['-created_at']
     permission_classes = [IsAdminUser]
 
 class ProductImageBulkCreateView(generics.CreateAPIView):
@@ -998,10 +1009,11 @@ class ProductImageDetailView(generics.RetrieveUpdateDestroyAPIView):
 class SpecialProductListCreateView(generics.ListCreateAPIView):
     queryset = SpecialProduct.objects.all()
     serializer_class = AdminSpecialProductSerializer
-    filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter]
+    filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter, OrderingFilter]
     filterset_fields = ['is_active', 'product']
     search_fields = ['product__name', 'product__subject__name']
     ordering_fields = ['order', 'created_at']
+    ordering = ['-order', '-created_at']
     permission_classes = [IsAdminUser]
     # Allow multipart/form-data for file uploads
     parser_classes = [MultiPartParser, FormParser, JSONParser]
@@ -1018,10 +1030,11 @@ class SpecialProductRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIV
 class BestProductListCreateView(generics.ListCreateAPIView):
     queryset = BestProduct.objects.all()
     serializer_class = AdminBestProductSerializer
-    filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter]
+    filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter, OrderingFilter]
     filterset_fields = ['is_active', 'product']
     search_fields = ['product__name', 'product__subject__name']
     ordering_fields = ['order', 'created_at']
+    ordering = ['-order', '-created_at']
     permission_classes = [IsAdminUser]
 
     def perform_create(self, serializer):
@@ -1036,9 +1049,11 @@ from django.db.models import Prefetch
 
 class PillListCreateView(generics.ListCreateAPIView):
     serializer_class = PillCreateSerializer
-    filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter]
+    filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter, OrderingFilter]
     filterset_class = PillFilter
     search_fields = ['user__name', 'user__username', 'pill_number', 'user__parent_phone', 'shakeout_invoice_id', 'shakeout_invoice_ref', 'easypay_invoice_uid', 'easypay_invoice_sequence', 'easypay_fawry_ref']
+    ordering_fields = ['id', 'date_added', 'status', 'user__username', 'pill_number']
+    ordering = ['-date_added']
     pagination_class = CustomPageNumberPagination
     permission_classes = [IsAdminUser]
 
@@ -1096,8 +1111,10 @@ class DiscountListCreateView(generics.ListCreateAPIView):
     queryset = Discount.objects.all()
     serializer_class = DiscountSerializer
     permission_classes = [IsAdminUser]
-    filter_backends = [DjangoFilterBackend]
+    filter_backends = [DjangoFilterBackend, OrderingFilter]
     filterset_fields = ['product', 'is_active']
+    ordering_fields = ['id', 'discount', 'discount_start', 'discount_end', 'created_at']
+    ordering = ['-created_at']
 
 class DiscountRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Discount.objects.all()
@@ -1107,8 +1124,10 @@ class DiscountRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
 class CouponListCreateView(generics.ListCreateAPIView):
     queryset = CouponDiscount.objects.all()
     serializer_class = CouponDiscountSerializer
-    filter_backends = [DjangoFilterBackend]
+    filter_backends = [DjangoFilterBackend, OrderingFilter]
     filterset_class = CouponDiscountFilter
+    ordering_fields = ['id', 'coupon', 'discount_value', 'created_at', 'coupon_start', 'coupon_end', 'available_use_times']
+    ordering = ['-created_at']
     permission_classes = [IsAdminUser]
 
 class CouponRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
@@ -1863,7 +1882,7 @@ class PackageProductListView(generics.ListAPIView):
     """List all package-product relationships (Dashboard)"""
     permission_classes = [IsAdminUser]
     serializer_class = PackageProductListSerializer
-    filter_backends = [DjangoFilterBackend]
+    filter_backends = [DjangoFilterBackend, OrderingFilter]
     filterset_fields = {
         'package_product__is_available': ['exact'],
         'package_product__subject': ['exact'],
@@ -1871,6 +1890,8 @@ class PackageProductListView(generics.ListAPIView):
         'package_product__type': ['exact'],
         'package_product__year': ['exact'],
     }
+    ordering_fields = ['id', 'created_at', 'package_product__name', 'related_product__name']
+    ordering = ['-created_at']
     pagination_class = CustomPageNumberPagination
 
     def get_queryset(self):
