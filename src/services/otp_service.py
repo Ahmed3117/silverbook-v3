@@ -77,7 +77,7 @@ class OTPService:
     
     def send_otp_via_whatsapp(self, phone_number, otp_code, purpose='verification'):
         """
-        Send OTP via WhatsApp
+        Send OTP via SMS using BeOn service
         
         Args:
             phone_number (str): Recipient phone number
@@ -88,7 +88,7 @@ class OTPService:
             dict: Result with success status and message
         """
         try:
-            from products.utils import send_whatsapp_message
+            from services.beon_service import send_beon_sms
             
             # Customize message based on purpose
             purpose_messages = {
@@ -100,16 +100,23 @@ class OTPService:
             
             message = purpose_messages.get(purpose, purpose_messages['default'])
             
-            # Send via WhatsApp
-            response = send_whatsapp_message(phone_number=phone_number, message=message)
+            # Send via BeOn SMS
+            response = send_beon_sms(phone_numbers=phone_number, message=message)
             
             logger.info(f"OTP sent to {phone_number} for {purpose}: {response}")
             
-            return {
-                'success': True,
-                'message': 'تم إرسال رمز التحقق بنجاح',
-                'response': response
-            }
+            if response['success']:
+                return {
+                    'success': True,
+                    'message': 'تم إرسال رمز التحقق بنجاح',
+                    'response': response
+                }
+            else:
+                return {
+                    'success': False,
+                    'message': 'فشل إرسال رمز التحقق',
+                    'error': response.get('error', 'Unknown error')
+                }
             
         except Exception as e:
             logger.error(f"Failed to send OTP to {phone_number}: {str(e)}")
@@ -181,9 +188,11 @@ class OTPService:
         else:
             # Delete OTP record if sending failed
             otp_record.delete()
+            logger.error(f"Failed to send OTP to {phone_number}: {send_result}")
             return {
                 'success': False,
-                'error': send_result['message']
+                'error': send_result.get('message', 'فشل إرسال رمز التحقق'),
+                'details': send_result.get('error')  # Pass through the actual error from BeOn
             }
     
     def verify_otp(self, phone_number, otp_code, purpose='verification', mark_as_used=True):

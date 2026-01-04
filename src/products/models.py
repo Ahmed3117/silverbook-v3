@@ -3,7 +3,7 @@ import string
 from django.db import models
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator, MaxValueValidator
-from products.utils import send_whatsapp_message
+from services.beon_service import send_beon_sms
 from accounts.models import YEAR_CHOICES, User
 from core import settings
 from django.utils import timezone
@@ -464,7 +464,7 @@ class Pill(models.Model):
             )
 
     def send_payment_notification(self):
-        """Notify the user that payment succeeded. Sends WhatsApp to user.username (phone number) with deeplink."""
+        """Notify the user that payment succeeded. Sends SMS to user.username (phone number) with deeplink."""
         from django.urls import reverse
         
         # Use username as phone number
@@ -478,18 +478,23 @@ class Pill(models.Model):
             deeplink_path = reverse('products:deeplink', args=['mybooks'])
             deeplink_url = f"{settings.SITE_URL}{deeplink_path}"
             
-            # Prepare WhatsApp message
+            # Prepare SMS message
             message = (
                 f"الدفع تم بنجاح\n\n"
                 f"تقدر تشوف الكتب المتاحه في مكتبتك من هنا\n"
                 f"{deeplink_url}"
             )
             
-            send_whatsapp_message(
-                phone_number=phone,
+            response = send_beon_sms(
+                phone_numbers=phone,
                 message=message
             )
-            logger.info("Payment notification sent to %s for pill %s", phone, self.pill_number)
+            
+            if response['success']:
+                logger.info("Payment notification sent to %s for pill %s", phone, self.pill_number)
+            else:
+                logger.warning("Failed to send payment notification for pill %s: %s", self.pill_number, response.get('error'))
+                
         except Exception as exc:  # pragma: no cover - best effort notification
             logger.warning("Failed to send payment notification for pill %s: %s", self.pill_number, exc)
 
@@ -630,13 +635,14 @@ class PurchasedBook(models.Model):
 
 
 def prepare_whatsapp_message(phone_number, pill):
-    print(f"Preparing WhatsApp message for phone number: {phone_number}")
+    print(f"Preparing SMS message for phone number: {phone_number}")
     message = (
         f"مرحباً {pill.user.username}،\n\n"
         f"تم استلام طلبك بنجاح.\n\n"
         f"رقم الطلب: {pill.pill_number}\n"
     )
-    send_whatsapp_message(
-        phone_number=phone_number,
+    response = send_beon_sms(
+        phone_numbers=phone_number,
         message=message
     )
+    return response

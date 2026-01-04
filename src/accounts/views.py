@@ -13,6 +13,9 @@ from django.utils import timezone
 from datetime import timedelta
 import random
 import secrets
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def get_client_ip(request):
@@ -433,14 +436,17 @@ def request_password_reset(request):
                     'expires_in_minutes': otp_result['expires_in_minutes']
                 }, status=status.HTTP_200_OK)
             else:
+                logger.error(f"Password reset OTP failed for {username}: {otp_result}")
                 return Response({
                     'error': otp_result.get('error', 'فشل إرسال رمز التحقق'),
+                    'details': otp_result.get('details'),  # Include error details for debugging
                     'wait_time': otp_result.get('wait_time'),
                     'max_attempts_reached': otp_result.get('max_attempts_reached', False)
                 }, status=status.HTTP_400_BAD_REQUEST)
                 
         except Exception as e:
-            return Response({'error': 'حدث خطأ، يرجى المحاولة لاحقًا.'}, status=status.HTTP_400_BAD_REQUEST)
+            logger.error(f"Exception in password reset for {username}: {str(e)}")
+            return Response({'error': 'حدث خطأ، يرجى المحاولة لاحقًا.', 'details': str(e)}, status=status.HTTP_400_BAD_REQUEST)
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(['POST'])

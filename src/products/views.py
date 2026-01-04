@@ -1236,7 +1236,7 @@ class AddBooksToStudentView(APIView):
         "product_ids": [1, 2, 3, 4]
     }
     """
-    permission_classes = [IsAuthenticated, IsAdminUser]
+    permission_classes = [IsAdminUser]
     
     def post(self, request):
         user_id = request.data.get('user_id')
@@ -1361,7 +1361,7 @@ class AdminPurchasedBookListCreateView(generics.ListCreateAPIView):
         'product__subject', 'product__teacher'
     )
     serializer_class = PurchasedBookSerializer
-    permission_classes = [IsAuthenticated, IsAdminUser]
+    permission_classes = [IsAdminUser]
     filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter, OrderingFilter]
     filterset_class = PurchasedBookFilter
     search_fields = ['product_name', 'user__username', 'user__name', 'product__name']
@@ -1469,7 +1469,7 @@ class AdminUserPurchasedBooksView(generics.ListAPIView):
     GET /products/dashboard/purchased-books/by-user/<user_id>/
     """
     serializer_class = PurchasedBookSerializer
-    permission_classes = [IsAuthenticated, IsAdminUser]
+    permission_classes = [IsAdminUser]
     pagination_class = CustomPageNumberPagination
 
     def get_queryset(self):
@@ -1497,7 +1497,7 @@ class AdminPurchasedBookRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroy
         'user', 'product', 'pill', 'pill_item'
     )
     serializer_class = PurchasedBookSerializer
-    permission_classes = [IsAuthenticated, IsAdminUser]
+    permission_classes = [IsAdminUser]
 
 
 class GeneratePresignedUploadUrlView(APIView):
