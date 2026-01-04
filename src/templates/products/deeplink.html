@@ -67,16 +67,46 @@
         </style>
         <script>
             function openApp() {
-                // Try opening custom scheme in iframe to avoid page navigation
+                // Try multiple methods to open the app
+                const appUrl = "{{ app_url }}";
+                const fallbackUrl = "{{ web_fallback }}";
+                
+                // Method 1: Try direct window.location (works better on mobile)
+                try {
+                    window.location.href = appUrl;
+                } catch (e) {
+                    console.log('Direct navigation failed:', e);
+                }
+                
+                // Method 2: Create invisible link and click it
+                const link = document.createElement('a');
+                link.href = appUrl;
+                link.style.display = 'none';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                
+                // Method 3: Also try iframe as fallback
                 const iframe = document.createElement('iframe');
                 iframe.style.display = 'none';
-                iframe.src = "{{ app_url }}";
+                iframe.src = appUrl;
                 document.body.appendChild(iframe);
-                
-                // Remove iframe after attempt
-                setTimeout(function() {
-                    document.body.removeChild(iframe);
+                setTimeout(() => {
+                    if (document.body.contains(iframe)) {
+                        document.body.removeChild(iframe);
+                    }
                 }, 1000);
+                
+                // Detect if app didn't open after 3 seconds
+                const startTime = Date.now();
+                setTimeout(function() {
+                    // If page is still visible after 3s, app probably didn't open
+                    if (Date.now() - startTime >= 2900) {
+                        document.getElementById('spinner').style.display = 'none';
+                        document.getElementById('loading-text').style.display = 'none';
+                        document.getElementById('fallback-message').style.display = 'block';
+                    }
+                }, 3000);
             }
             window.onload = openApp;
         </script>
@@ -84,10 +114,11 @@
     <body>
         <div class="container">
             <h1>🎉 الدفع تم بنجاح</h1>
-            <div class="spinner"></div>
-            <p>جاري فتح التطبيق...</p>
-            <p style="font-size: 14px; opacity: 0.9;">تقدر تشوف الكتب المتاحة في مكتبتك الآن</p>
-            <a href="{{ web_fallback }}">إذا لم يفتح التطبيق، اضغط هنا</a>
+            <div class="spinner" id="spinner"></div>
+            <p id="loading-text">جاري فتح التطبيق...</p>
+            <p id="fallback-message" style="display: none; font-size: 16px; margin: 20px 0;">لم يفتح التطبيق تلقائياً؟</p>
+            <a href="{{ app_url }}" style="margin-bottom: 10px;">اضغط هنا لفتح التطبيق</a>
+            <a href="{{ web_fallback }}" style="background: rgba(255, 255, 255, 0.15);">أو حمّل التطبيق من المتجر</a>
         </div>
     </body>
 </html>
