@@ -874,7 +874,7 @@ class ProductListCreateView(generics.ListCreateAPIView):
     filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter, OrderingFilter]
     filterset_class = ProductFilter
     search_fields = ['name', 'description']
-    ordering_fields = ['id', 'name', 'price', 'date_added', 'year']
+    ordering_fields = ['id', 'name', 'price', 'discounted_price', 'date_added', 'year']
     ordering = ['-date_added']
     pagination_class = CustomPageNumberPagination
     permission_classes = [IsAdminUser]  # Changed for testing - change back to IsAdminUser in production
@@ -885,7 +885,7 @@ class ProductListBreifedView(generics.ListCreateAPIView):
     filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter, OrderingFilter]
     filterset_class = ProductFilter
     search_fields = ['name', 'description']
-    ordering_fields = ['id', 'name', 'price', 'date_added', 'year']
+    ordering_fields = ['id', 'name', 'price', 'discounted_price', 'date_added', 'year']
     ordering = ['-date_added']
     permission_classes = [IsAdminUser]
 
@@ -1052,7 +1052,7 @@ class PillListCreateView(generics.ListCreateAPIView):
     filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter, OrderingFilter]
     filterset_class = PillFilter
     search_fields = ['user__name', 'user__username', 'pill_number', 'user__parent_phone', 'shakeout_invoice_id', 'shakeout_invoice_ref', 'easypay_invoice_uid', 'easypay_invoice_sequence', 'easypay_fawry_ref']
-    ordering_fields = ['id', 'date_added', 'status', 'user__username', 'pill_number']
+    ordering_fields = ['id', 'date_added', 'status', 'user__username', 'pill_number', 'final_price']
     ordering = ['-date_added']
     pagination_class = CustomPageNumberPagination
     permission_classes = [IsAdminUser]
@@ -1365,7 +1365,7 @@ class AdminPurchasedBookListCreateView(generics.ListCreateAPIView):
     filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter, OrderingFilter]
     filterset_class = PurchasedBookFilter
     search_fields = ['product_name', 'user__username', 'user__name', 'product__name']
-    ordering_fields = ['created_at', 'product_name', 'user__username']
+    ordering_fields = ['created_at', 'product_name', 'user__username', 'price_at_sale']
     ordering = ['-created_at']
     pagination_class = CustomPageNumberPagination
     
@@ -1482,7 +1482,7 @@ class AdminUserPurchasedBooksView(generics.ListAPIView):
     # Optionally, allow ordering and searching if needed
     filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter, OrderingFilter]
     search_fields = ['product_name', 'user__username', 'user__name', 'product__name']
-    ordering_fields = ['created_at', 'product_name', 'user__username']
+    ordering_fields = ['created_at', 'product_name', 'user__username', 'price_at_sale']
     ordering = ['-created_at']
 
 class AdminPurchasedBookRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):

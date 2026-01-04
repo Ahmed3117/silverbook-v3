@@ -871,8 +871,8 @@ def remove_student_device(request, pk, device_id):
         deleted_count = OutstandingToken.objects.filter(user=student).delete()[0]
         
         message = f'تم حذف الجهاز "{device_name}" وحذف {deleted_count} رمز وصول'
-    except ImportError:
-        # Token blacklist not enabled
+    except (ImportError, AttributeError):
+        # Token blacklist not enabled or not properly configured
         message = f'تم حذف الجهاز "{device_name}". تحذير: ميزة إدارة الرموز غير مفعلة - قد يظل الرمز نشطًا حتى انتهاء صلاحيته'
     
     return Response({
@@ -902,7 +902,8 @@ def remove_all_student_devices(request, pk):
         tokens_deleted = OutstandingToken.objects.filter(user=student).delete()[0]
         
         message = f'تم حذف {deleted_count} جهاز و{tokens_deleted} رمز وصول'
-    except ImportError:
+    except (ImportError, AttributeError):
+        # Token blacklist not enabled or not properly configured
         message = f'تم حذف {deleted_count} جهاز. تحذير: ميزة إدارة الرموز غير مفعلة'
     
     return Response({
