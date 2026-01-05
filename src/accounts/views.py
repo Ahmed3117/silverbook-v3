@@ -335,36 +335,55 @@ def signin(request):
 
             existing_device = None
             if device_id:
+                # Check by device_id first (most reliable)
                 existing_device = UserDevice.objects.filter(
                     user=user,
-                    is_active=True,
                     device_id=device_id
                 ).first()
-                
-                # Check if this device is banned
-                if existing_device and existing_device.is_banned:
-                    return Response({'error': 'لقد تم حظر هذا الجهاز'}, status=status.HTTP_403_FORBIDDEN)
             else:
+                # Fallback to IP address if no device_id provided
                 existing_device = UserDevice.objects.filter(
                     user=user,
-                    is_active=True,
                     ip_address=ip_address,
                     device_id__isnull=True
                 ).first()
-
+            
+            # Check if this device exists and is banned
             if existing_device:
-                existing_device.last_used_at = timezone.now()
-                existing_device.user_agent = device_info_data['user_agent']
-                existing_device.device_name = final_device_name
-                existing_device.ip_address = ip_address
-                if device_id and not existing_device.device_id:
-                    existing_device.device_id = device_id
-                existing_device.save(update_fields=['last_used_at', 'user_agent', 'device_name', 'ip_address', 'device_id'])
-                device_token = existing_device.device_token
+                if existing_device.is_banned:
+                    return Response({'error': 'لا يمكنك التسجيل من هذا الجهاز لانك محظور'}, status=status.HTTP_403_FORBIDDEN)
+                
+                # Update existing device info
+                if existing_device.is_active:
+                    # Device is active, just update last_used timestamp
+                    existing_device.last_used_at = timezone.now()
+                    existing_device.user_agent = device_info_data['user_agent']
+                    existing_device.device_name = final_device_name
+                    existing_device.ip_address = ip_address
+                    if device_id and not existing_device.device_id:
+                        existing_device.device_id = device_id
+                    existing_device.save(update_fields=['last_used_at', 'user_agent', 'device_name', 'ip_address', 'device_id'])
+                    device_token = existing_device.device_token
+                else:
+                    # Device exists but not active - reactivate it if under limit
+                    active_devices_count = UserDevice.objects.filter(user=user, is_active=True).count()
+                    if active_devices_count >= user.max_allowed_devices:
+                        return Response({'error': 'لقد تجاوزت العدد المسموح به من الأجهزة لتسجيل الدخول إلى حسابك .'}, status=status.HTTP_403_FORBIDDEN)
+                    
+                    existing_device.is_active = True
+                    existing_device.last_used_at = timezone.now()
+                    existing_device.user_agent = device_info_data['user_agent']
+                    existing_device.device_name = final_device_name
+                    existing_device.ip_address = ip_address
+                    if device_id and not existing_device.device_id:
+                        existing_device.device_id = device_id
+                    existing_device.save(update_fields=['is_active', 'last_used_at', 'user_agent', 'device_name', 'ip_address', 'device_id'])
+                    device_token = existing_device.device_token
             else:
+                # New device - check if user has reached limit
                 active_devices_count = UserDevice.objects.filter(user=user, is_active=True).count()
                 if active_devices_count >= user.max_allowed_devices:
-                    return Response({'error': 'لقد تجاوزت العدد المسموح به من الأجهزة لتسجيل الدخول إلى حسابك .'}, status=status.HTTP_400_BAD_REQUEST)
+                    return Response({'error': 'لقد تجاوزت العدد المسموح به من الأجهزة لتسجيل الدخول إلى حسابك .'}, status=status.HTTP_403_FORBIDDEN)
 
                 device_token = secrets.token_hex(32)
                 UserDevice.objects.create(

@@ -10,11 +10,12 @@ from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
 from django.shortcuts import redirect
 from django.utils import timezone
+from django.db.models import F
 import json
 import logging
 import time
 
-from products.models import Pill
+from products.models import Pill, CouponDiscount
 from services.fawaterak_service import fawaterak_service
 from services.shakeout_service import shakeout_service  # Add Shake-out service import
 from services.easypay_service import easypay_service  # Add EasyPay service import
@@ -395,7 +396,18 @@ class CreateShakeoutInvoiceView(APIView):
             logger.info(f"Starting Shake-out invoice creation for pill {pill_id}, user: {request.user}")
             
             pill = get_object_or_404(Pill, id=pill_id, user=request.user)
-            logger.info(f"Pill found: {pill.pill_number}")
+            logger.info(f"Pill found: {pill.pill_number} with status: {pill.status}")
+            
+            # Check if pill is cancelled or expired
+            if pill.status in ['c', 'e']:
+                status_display = 'ملغى' if pill.status == 'c' else 'منتهى الصلاحية'
+                logger.warning(f"Cannot create invoice for pill {pill_id} with status: {pill.status} ({status_display})")
+                return Response({
+                    'success': False,
+                    'error': 'لا يمكن انشاء فاتورة دفع لاوردر ملغى او منتهى الصلاحية',
+                    'pill_status': pill.status,
+                    'status_display': status_display
+                }, status=status.HTTP_400_BAD_REQUEST)
             
             # Check if pill already has a Shake-out invoice
             if pill.shakeout_invoice_id:
@@ -492,6 +504,17 @@ class CreateShakeoutInvoiceView(APIView):
                     # Invoice created successfully, proceed with saving
                     logger.info(f"Shake-out invoice created successfully on attempt {attempt + 1}")
                     
+                    # Decrement coupon usage if a coupon is applied
+                    if pill.coupon_id:
+                        updated = CouponDiscount.objects.filter(
+                            pk=pill.coupon_id,
+                            available_use_times__gt=0
+                        ).update(available_use_times=F('available_use_times') - 1)
+                        if updated:
+                            logger.info(f"Decremented coupon usage for coupon {pill.coupon_id} on pill {pill_id}")
+                        else:
+                            logger.warning(f"Could not decrement coupon usage for coupon {pill.coupon_id} - may be exhausted")
+                    
                     # Update pill with invoice data from successful response
                     pill.shakeout_invoice_id = result['data']['invoice_id']
                     pill.shakeout_invoice_ref = result['data']['invoice_ref']
@@ -562,7 +585,18 @@ class CreateEasyPayInvoiceView(APIView):
             logger.info(f"Starting EasyPay invoice creation for pill {pill_id}, user: {request.user}")
             
             pill = get_object_or_404(Pill, id=pill_id, user=request.user)
-            logger.info(f"Pill found: {pill.pill_number}")
+            logger.info(f"Pill found: {pill.pill_number} with status: {pill.status}")
+            
+            # Check if pill is cancelled or expired
+            if pill.status in ['c', 'e']:
+                status_display = 'ملغى' if pill.status == 'c' else 'منتهى الصلاحية'
+                logger.warning(f"Cannot create invoice for pill {pill_id} with status: {pill.status} ({status_display})")
+                return Response({
+                    'success': False,
+                    'error': 'لا يمكن انشاء فاتورة دفع لاوردر ملغى او منتهى الصلاحية',
+                    'pill_status': pill.status,
+                    'status_display': status_display
+                }, status=status.HTTP_400_BAD_REQUEST)
             
             # Check if pill already has an EasyPay invoice
             if pill.easypay_invoice_uid:
@@ -664,6 +698,17 @@ class CreateEasyPayInvoiceView(APIView):
                     # fawry_ref is valid, proceed with saving
                     logger.info(f"EasyPay invoice created successfully with valid fawry_ref on attempt {attempt + 1}")
                     
+                    # Decrement coupon usage if a coupon is applied
+                    if pill.coupon_id:
+                        updated = CouponDiscount.objects.filter(
+                            pk=pill.coupon_id,
+                            available_use_times__gt=0
+                        ).update(available_use_times=F('available_use_times') - 1)
+                        if updated:
+                            logger.info(f"Decremented coupon usage for coupon {pill.coupon_id} on pill {pill_id}")
+                        else:
+                            logger.warning(f"Could not decrement coupon usage for coupon {pill.coupon_id} - may be exhausted")
+                    
                     # Update pill fields
                     pill.easypay_invoice_uid = invoice_uid
                     pill.easypay_invoice_sequence = invoice_sequence
@@ -722,10 +767,37 @@ class CreatePaymentInvoiceView(APIView):
         try:
             from django.conf import settings
             
-            logger.info(f"Starting payment invoice creation for pill {pill_id}, user: {request.user}")
+            logger.info(f"Starting payment invoice creation for pill {pill_id}")
+            logger.info(f"request.user: {request.user}")
+            logger.info(f"request.user type: {type(request.user)}")
+            logger.info(f"request.user.id: {request.user.id if hasattr(request.user, 'id') else 'NO ID'}")
+            logger.info(f"is_authenticated: {request.user.is_authenticated if hasattr(request.user, 'is_authenticated') else 'NO ATTR'}")
+            
+            # Debug: Check all pills
+            all_pills = Pill.objects.filter(id=pill_id)
+            logger.info(f"All pills with id={pill_id}: {all_pills.count()} found")
+            for p in all_pills:
+                logger.info(f"  - Pill: id={p.id}, user_id={p.user_id}, user={p.user}")
+            
+            # Debug: Check pills for this user
+            user_pills = Pill.objects.filter(user=request.user)
+            logger.info(f"Pills for user {request.user.id}: {user_pills.count()} found")
+            for p in user_pills:
+                logger.info(f"  - Pill: id={p.id}, user_id={p.user_id}")
             
             pill = get_object_or_404(Pill, id=pill_id, user=request.user)
-            logger.info(f"Pill found: {pill.pill_number}")
+            logger.info(f"Pill found: {pill.pill_number} with status: {pill.status}")
+            
+            # Check if pill is cancelled or expired
+            if pill.status in ['c', 'e']:
+                status_display = 'ملغى' if pill.status == 'c' else 'منتهى الصلاحية'
+                logger.warning(f"Cannot create invoice for pill {pill_id} with status: {pill.status} ({status_display})")
+                return Response({
+                    'success': False,
+                    'error': 'لا يمكن انشاء فاتورة دفع لاوردر ملغى او منتهى الصلاحية',
+                    'pill_status': pill.status,
+                    'status_display': status_display
+                }, status=status.HTTP_400_BAD_REQUEST)
             
             # Check if final price is 0 (100% discount applied)
             final_price = pill.final_price()
@@ -848,6 +920,17 @@ class CreatePaymentInvoiceView(APIView):
                         # fawry_ref is valid, proceed with saving
                         logger.info(f"EasyPay invoice created successfully with valid fawry_ref on attempt {attempt + 1}")
                         
+                        # Decrement coupon usage if a coupon is applied
+                        if pill.coupon_id:
+                            updated = CouponDiscount.objects.filter(
+                                pk=pill.coupon_id,
+                                available_use_times__gt=0
+                            ).update(available_use_times=F('available_use_times') - 1)
+                            if updated:
+                                logger.info(f"Decremented coupon usage for coupon {pill.coupon_id} on pill {pill_id}")
+                            else:
+                                logger.warning(f"Could not decrement coupon usage for coupon {pill.coupon_id} - may be exhausted")
+                        
                         # Update pill fields
                         pill.easypay_invoice_uid = invoice_uid
                         pill.easypay_invoice_sequence = invoice_sequence
@@ -899,6 +982,17 @@ class CreatePaymentInvoiceView(APIView):
                 result = shakeout_service.create_payment_invoice(pill)
                 
                 if result['success']:
+                    # Decrement coupon usage if a coupon is applied
+                    if pill.coupon_id:
+                        updated = CouponDiscount.objects.filter(
+                            pk=pill.coupon_id,
+                            available_use_times__gt=0
+                        ).update(available_use_times=F('available_use_times') - 1)
+                        if updated:
+                            logger.info(f"Decremented coupon usage for coupon {pill.coupon_id} on pill {pill_id}")
+                        else:
+                            logger.warning(f"Could not decrement coupon usage for coupon {pill.coupon_id} - may be exhausted")
+                    
                     pill.shakeout_invoice_id = result['data']['invoice_id']
                     pill.shakeout_invoice_ref = result['data']['invoice_ref']
                     pill.shakeout_data = result['data']

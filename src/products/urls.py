@@ -24,6 +24,7 @@ urlpatterns = [
     path('pills/<int:id>/apply-coupon/', views.PillCouponApplyView.as_view(), name='pill-coupon-apply'),
     path('pills/<int:id>/', views.PillDetailView.as_view(), name='pill-detail'),
     path('user-pills/', views.UserPillsView.as_view(), name='user-pills'),
+    path('pills/unpaid/', views.UserUnpaidPillsView.as_view(), name='user-unpaid-pills'),
     path('my-books/', views.PurchasedBookListView.as_view(), name='purchased-books'),
     path('deeplink/<str:target>/', views.DeeplinkView.as_view(), name='deeplink'),
     path('app/<str:target>/', views.AppFallbackView.as_view(), name='app-fallback'),
@@ -80,6 +81,7 @@ urlpatterns = [
     path('dashboard/purchased-books/', views.AdminPurchasedBookListCreateView.as_view(), name='admin-purchased-books-list-create'),
     path('dashboard/purchased-books/<int:pk>/', views.AdminPurchasedBookRetrieveUpdateDestroyView.as_view(), name='admin-purchased-books-detail'),
     path('dashboard/purchased-books/by-user/<int:user_id>/', views.AdminUserPurchasedBooksView.as_view(), name='admin-user-purchased-books'),
+    path('dashboard/cancel-invoice/', views.CancelInvoiceView.as_view(), name='admin-cancel-invoice'),
 
     # Package Product Endpoints
     path('my-books/package/<int:product_id>/details/', views.MyPackageDetailsView.as_view(), name='my-package-details'),

@@ -160,10 +160,29 @@ def handle_easypay_webhook_post(request, api_key):
                 logger.error(f"Failed to send payment notification for pill {pill.pill_number}: {str(e)}")
                 # Don't fail the webhook for notification errors
         
+        elif status_paid == 'EXPIRED':
+            logger.info(f"Processing EXPIRED status for pill {pill.pill_number}")
+            
+            old_status = pill.status
+            pill.status = 'e'
+            
+            # Update EasyPay data with webhook information
+            easypay_payload = pill.easypay_data or {}
+            easypay_payload['webhook_received'] = True
+            easypay_payload['webhook_timestamp'] = timezone.now().isoformat()
+            easypay_payload['webhook_data'] = webhook_data
+            pill.easypay_data = easypay_payload
+            
+            pill.save(update_fields=['status', 'easypay_data'])
+            
+            logger.info(f"✓ Updated pill {pill.pill_number}:")
+            logger.info(f"  - Status: {old_status} → {pill.status} (Expired)")
+            logger.info(f"  - Amount: {amount}")
+        
         else:
             logger.info(f"Non-payment status received for pill {pill.pill_number}: {status_paid}")
             
-            # Update EasyPay data with webhook information for non-payment statuses
+            # Update EasyPay data with webhook information for other statuses
             easypay_payload = pill.easypay_data or {}
             easypay_payload['webhook_received'] = True
             easypay_payload['webhook_timestamp'] = timezone.now().isoformat()
