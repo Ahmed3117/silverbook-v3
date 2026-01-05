@@ -317,6 +317,11 @@ def signin(request):
     user = authenticate(username=username, password=password)
     if not user:
         return Response({'error': 'بيانات الدخول غير صحيحة، من فضلك تحقق.'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Check if user is banned
+    if user.is_banned:
+        return Response({'error': 'لقد تم حظر هذا الحساب'}, status=status.HTTP_403_FORBIDDEN)
+    
     try:
         device_token = None
 
@@ -335,6 +340,10 @@ def signin(request):
                     is_active=True,
                     device_id=device_id
                 ).first()
+                
+                # Check if this device is banned
+                if existing_device and existing_device.is_banned:
+                    return Response({'error': 'لقد تم حظر هذا الجهاز'}, status=status.HTTP_403_FORBIDDEN)
             else:
                 existing_device = UserDevice.objects.filter(
                     user=user,
@@ -845,7 +854,7 @@ def remove_student_device(request, pk, device_id):
     """
     Remove (delete) a specific device from a student.
     This will log out that device immediately (next API call will fail).
-    Also blacklists all refresh tokens to invalidate access tokens.
+    The student can login again from this device if they want.
     """
     try:
         student = User.objects.get(pk=pk, user_type='student')
@@ -858,25 +867,13 @@ def remove_student_device(request, pk, device_id):
         return Response({'error': 'الجهاز غير موجود لهذا الطالب'}, status=status.HTTP_400_BAD_REQUEST)
     
     device_name = device.device_name
-    device_token = device.device_token
     
-    # Delete the device first
+    # Simply delete the device - this will invalidate all tokens with this device_token
+    # The authentication middleware will reject any requests with this device_token
     device.delete()
     
-    # Delete all outstanding refresh tokens for this user to invalidate access tokens immediately
-    try:
-        from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
-        
-        # Delete all outstanding tokens for this user
-        deleted_count = OutstandingToken.objects.filter(user=student).delete()[0]
-        
-        message = f'تم حذف الجهاز "{device_name}" وحذف {deleted_count} رمز وصول'
-    except (ImportError, AttributeError):
-        # Token blacklist not enabled or not properly configured
-        message = f'تم حذف الجهاز "{device_name}". تحذير: ميزة إدارة الرموز غير مفعلة - قد يظل الرمز نشطًا حتى انتهاء صلاحيته'
-    
     return Response({
-        'message': message,
+        'message': f'تم حذف الجهاز "{device_name}"',
         'active_devices_count': UserDevice.objects.filter(user=student, is_active=True).count()
     })
 
@@ -932,3 +929,137 @@ def my_devices(request):
         'devices': serializer.data
     })
 
+
+# ============================================
+# Ban/Unban User and Device Endpoints
+# ============================================
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def ban_student(request, pk):
+    """
+    Ban a student - logs them out from all devices and prevents login
+    
+    POST /accounts/dashboard/students/<pk>/ban/
+    {
+        "reason": "Optional reason for ban"
+    }
+    """
+    try:
+        student = User.objects.get(pk=pk, user_type='student')
+    except User.DoesNotExist:
+        return Response({'error': 'الطالب غير موجود'}, status=status.HTTP_404_NOT_FOUND)
+    
+    if student.is_banned:
+        return Response({'error': 'الطالب محظور بالفعل'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Ban the user
+    student.is_banned = True
+    student.banned_at = timezone.now()
+    student.ban_reason = request.data.get('reason', '')
+    student.save(update_fields=['is_banned', 'banned_at', 'ban_reason'])
+    
+    # Deactivate all devices
+    UserDevice.objects.filter(user=student).update(is_active=False)
+    
+    return Response({
+        'message': f'تم حظر الطالب "{student.name}" بنجاح',
+        'banned_at': student.banned_at
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def unban_student(request, pk):
+    """
+    Unban a student - allows them to login again
+    
+    POST /accounts/dashboard/students/<pk>/unban/
+    """
+    try:
+        student = User.objects.get(pk=pk, user_type='student')
+    except User.DoesNotExist:
+        return Response({'error': 'الطالب غير موجود'}, status=status.HTTP_404_NOT_FOUND)
+    
+    if not student.is_banned:
+        return Response({'error': 'الطالب غير محظور'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Unban the user
+    student.is_banned = False
+    student.banned_at = None
+    student.ban_reason = None
+    student.save(update_fields=['is_banned', 'banned_at', 'ban_reason'])
+    
+    return Response({
+        'message': f'تم إلغاء حظر الطالب "{student.name}" بنجاح'
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def ban_device(request, pk, device_id):
+    """
+    Ban a specific device - logs it out and prevents login from that device
+    
+    POST /accounts/dashboard/students/<pk>/devices/<device_id>/ban/
+    {
+        "reason": "Optional reason for ban"
+    }
+    """
+    try:
+        student = User.objects.get(pk=pk, user_type='student')
+    except User.DoesNotExist:
+        return Response({'error': 'الطالب غير موجود'}, status=status.HTTP_404_NOT_FOUND)
+    
+    try:
+        device = UserDevice.objects.get(pk=device_id, user=student)
+    except UserDevice.DoesNotExist:
+        return Response({'error': 'الجهاز غير موجود لهذا الطالب'}, status=status.HTTP_404_NOT_FOUND)
+    
+    if device.is_banned:
+        return Response({'error': 'الجهاز محظور بالفعل'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Ban the device
+    device.is_banned = True
+    device.is_active = False
+    device.banned_at = timezone.now()
+    device.ban_reason = request.data.get('reason', '')
+    device.save(update_fields=['is_banned', 'is_active', 'banned_at', 'ban_reason'])
+    
+    return Response({
+        'message': f'تم حظر الجهاز "{device.device_name}" بنجاح',
+        'banned_at': device.banned_at
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def unban_device(request, pk, device_id):
+    """
+    Unban a device - allows login from that device again
+    
+    POST /accounts/dashboard/students/<pk>/devices/<device_id>/unban/
+    """
+    try:
+        student = User.objects.get(pk=pk, user_type='student')
+    except User.DoesNotExist:
+        return Response({'error': 'الطالب غير موجود'}, status=status.HTTP_404_NOT_FOUND)
+    
+    try:
+        device = UserDevice.objects.get(pk=device_id, user=student)
+    except UserDevice.DoesNotExist:
+        return Response({'error': 'الجهاز غير موجود لهذا الطالب'}, status=status.HTTP_404_NOT_FOUND)
+    
+    if not device.is_banned:
+        return Response({'error': 'الجهاز غير محظور'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Unban the device
+    device.is_banned = False
+    device.is_active = True
+    device.banned_at = None
+    device.ban_reason = None
+    device.save(update_fields=['is_banned', 'is_active', 'banned_at', 'ban_reason'])
+    
+    return Response({
+        'message': f'تم إلغاء حظر الجهاز "{device.device_name}" بنجاح'
+    })

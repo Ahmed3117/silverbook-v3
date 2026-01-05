@@ -33,6 +33,13 @@ class MultiDeviceJWTAuthentication(JWTAuthentication):
         
         user, validated_token = result
         
+        # Check if user is banned
+        if user.is_banned:
+            raise AuthenticationFailed(
+                detail='لقد تم حظر هذا الحساب',
+                code='user_banned'
+            )
+        
         # Only enforce device limits for students
         if user.user_type == 'student':
             # Get the device token from the JWT
@@ -55,6 +62,13 @@ class MultiDeviceJWTAuthentication(JWTAuthentication):
                     raise AuthenticationFailed(
                         detail='Session expired. This device has been logged out or removed.',
                         code='device_token_invalid'
+                    )
+                
+                # Check if device is banned
+                if device.is_banned:
+                    raise AuthenticationFailed(
+                        detail='لقد تم حظر هذا الجهاز',
+                        code='device_banned'
                     )
                 
                 # Update last_used_at timestamp
