@@ -174,7 +174,7 @@ class AdminListUserSerializer(serializers.ModelSerializer):
         model = User
         fields = (
             'id', 'username', 'email', 'name', 'is_staff', 'is_superuser',
-            'created_at'
+            'is_banned', 'banned_at', 'ban_reason', 'created_at'
         )
 
 
@@ -187,7 +187,7 @@ class PublicUserSerializer(serializers.ModelSerializer):
         fields = (
             'id', 'username', 'email', 'name', 'government', 'user_type',
             'parent_phone', 'year', 'division',
-            'created_at'
+            'is_banned', 'banned_at', 'ban_reason', 'created_at'
         )
 
 
@@ -325,7 +325,7 @@ class UserDeviceSerializer(serializers.ModelSerializer):
         model = UserDevice
         fields = [
             'id', 'device_id', 'device_name', 'ip_address', 'user_agent',
-            'logged_in_at', 'last_used_at', 'is_active'
+            'logged_in_at', 'last_used_at', 'is_active', 'is_banned', 'banned_at', 'ban_reason'
         ]
         read_only_fields = ['logged_in_at', 'last_used_at']
 
@@ -339,7 +339,7 @@ class StudentDeviceListSerializer(serializers.ModelSerializer):
         model = User
         fields = [
             'id', 'username', 'name', 'max_allowed_devices',
-            'active_devices_count', 'devices'
+            'active_devices_count', 'is_banned', 'banned_at', 'ban_reason', 'devices'
         ]
     
     def get_active_devices_count(self, obj):
