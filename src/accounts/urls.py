@@ -43,6 +43,12 @@ urlpatterns = [
     path('dashboard/students/<int:pk>/devices/<int:device_id>/remove/', views.remove_student_device, name='remove-student-device'),
     path('dashboard/students/<int:pk>/devices/remove-all/', views.remove_all_student_devices, name='remove-all-student-devices'),
     
+    # Ban/Unban Management (Admin)
+    path('dashboard/students/<int:pk>/ban/', views.ban_student, name='ban-student'),
+    path('dashboard/students/<int:pk>/unban/', views.unban_student, name='unban-student'),
+    path('dashboard/students/<int:pk>/devices/<int:device_id>/ban/', views.ban_device, name='ban-device'),
+    path('dashboard/students/<int:pk>/devices/<int:device_id>/unban/', views.unban_device, name='unban-device'),
+    
     # Student's own devices
     path('my-devices/', views.my_devices, name='my-devices'),
 ]

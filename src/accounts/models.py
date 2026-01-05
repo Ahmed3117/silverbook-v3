@@ -94,6 +94,22 @@ class User(AbstractUser):
         default=2,
         help_text="Maximum number of devices allowed for this student (admin can adjust per student)"
     )
+    
+    # Ban control
+    is_banned = models.BooleanField(
+        default=False,
+        help_text="Whether this user is banned from logging in"
+    )
+    banned_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When this user was banned"
+    )
+    ban_reason = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Reason for banning this user"
+    )
 
     def __str__(self):
         return self.name if self.name else self.username
@@ -189,6 +205,22 @@ class UserDevice(models.Model):
     is_active = models.BooleanField(
         default=True,
         help_text="Whether this device is currently active (can be disabled by admin)"
+    )
+    
+    # Ban control
+    is_banned = models.BooleanField(
+        default=False,
+        help_text="Whether this device is banned from logging in"
+    )
+    banned_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When this device was banned"
+    )
+    ban_reason = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Reason for banning this device"
     )
 
     class Meta:
