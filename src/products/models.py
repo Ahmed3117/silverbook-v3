@@ -46,6 +46,8 @@ PILL_STATUS_CHOICES = [
     ('i', 'initiated'),
     ('w', 'Waiting'),
     ('p', 'Paid'),
+    ('c', 'Cancelled'),
+    ('e', 'Expired'),
 ]
 
 PAYMENT_GATEWAY_CHOICES = [

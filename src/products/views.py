@@ -298,6 +298,96 @@ class UserPillsView(generics.ListAPIView):
         return queryset
 
 
+class UserUnpaidPillsView(generics.ListAPIView):
+    """
+    List unpaid pills for the authenticated user.
+    
+    This endpoint helps students check which unpaid pills they have
+    before creating a new pill, so they're aware which ones will be cancelled.
+    
+    Returns only pills with status not in ['p', 'c', 'e'] (not paid, cancelled, or expired)
+    
+    URL: GET /products/pills/unpaid/
+    """
+    serializer_class = UnpaidPillListSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        # Return all unpaid pills (excluding paid, cancelled, expired) for the current user
+        return Pill.objects.filter(user=self.request.user).exclude(status__in=['p', 'c', 'e']).order_by('-date_added')
+
+
+class CancelInvoiceView(APIView):
+    """
+    Cancel an EasyPay invoice (Admin only).
+    
+    This endpoint allows administrators to manually cancel unpaid invoices.
+    
+    POST /products/dashboard/cancel-invoice/
+    Body: {
+        "fawry_ref": "9566331553"
+    }
+    
+    Returns:
+        200 OK: Invoice cancelled successfully
+        400 Bad Request: Invalid request or missing fawry_ref
+        500 Internal Server Error: Cancellation failed
+    """
+    permission_classes = [IsAdminUser]
+    
+    def post(self, request):
+        from services.easypay_service import easypay_service
+        
+        fawry_ref = request.data.get('fawry_ref')
+        
+        if not fawry_ref:
+            return Response(
+                {'error': 'حقل fawry_ref مطلوب'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        logger.info(f"🔧 [ADMIN_CANCEL] Admin {request.user.username} (ID: {request.user.id}) requesting invoice cancellation for fawry_ref: {fawry_ref}")
+        
+        try:
+            result = easypay_service.cancel_invoice(fawry_ref)
+            
+            if result['success']:
+                logger.info(f"✅ [ADMIN_CANCEL] Successfully cancelled invoice {fawry_ref}")
+                return Response(
+                    {
+                        'success': True,
+                        'message': f'تم إلغاء الفاتورة {fawry_ref} بنجاح',
+                        'fawry_ref': fawry_ref,
+                        'data': result.get('data', {})
+                    },
+                    status=status.HTTP_200_OK
+                )
+            else:
+                error_msg = result.get('error', 'Unknown error')
+                logger.error(f"❌ [ADMIN_CANCEL] Failed to cancel invoice {fawry_ref}: {error_msg}")
+                return Response(
+                    {
+                        'success': False,
+                        'error': f'فشل إلغاء الفاتورة: {error_msg}',
+                        'fawry_ref': fawry_ref
+                    },
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+        
+        except Exception as e:
+            logger.error(f"❌ [ADMIN_CANCEL] Exception while cancelling invoice {fawry_ref}: {str(e)}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return Response(
+                {
+                    'success': False,
+                    'error': f'حدث استثناء أثناء إلغاء الفاتورة: {str(e)}',
+                    'fawry_ref': fawry_ref
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
 class PurchasedBookListView(generics.ListAPIView):
     serializer_class = PurchasedBookSerializer
     permission_classes = [IsAuthenticated]

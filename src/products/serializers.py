@@ -974,6 +974,10 @@ class PillCreateSerializer(serializers.ModelSerializer):
             raise ValidationError({'items': ['جميع المنتجات المحددة مملوكة بالفعل']})
 
         with transaction.atomic():
+            # Remove old unpaid pills and cancel their invoices
+            self._remove_unpaid_pills(user)
+            
+            # Create the new pill
             pill = Pill.objects.create(**validated_data)
 
             pill_items = []
@@ -994,6 +998,78 @@ class PillCreateSerializer(serializers.ModelSerializer):
             pill.items.set(pill_items)
 
         return pill
+
+    def _remove_unpaid_pills(self, user):
+        """Cancel unpaid pills for the user and cancel their EasyPay invoices.
+        
+        This method finds all pills with status != 'p' (not paid) and:
+        1. Cancels their EasyPay invoices (if they have one)
+        2. Sets pill status to 'c' (cancelled) instead of deleting
+        
+        All processes must happen together - if invoice cancellation fails, 
+        the entire operation is aborted.
+        """
+        import logging
+        from services.easypay_service import easypay_service
+        
+        logger = logging.getLogger(__name__)
+        
+        # Get all unpaid pills for this user (status != 'p', 'c', 'e')
+        unpaid_pills = Pill.objects.filter(user=user).exclude(status__in=['p', 'c', 'e'])
+        
+        logger.info(f"🔍 [PILL_CREATION] Found {unpaid_pills.count()} unpaid pill(s) for user {user.id} ({user.username})")
+        
+        for pill in unpaid_pills:
+            logger.info(f"🔍 [PILL_CREATION] Processing unpaid pill {pill.pill_number} (ID: {pill.id}, status: {pill.status})")
+            
+            # Cancel EasyPay invoice if it exists
+            if pill.easypay_invoice_uid or pill.easypay_fawry_ref:
+                try:
+                    # Use fawry_ref as reference number for cancellation (not pill ID!)
+                    ref_number = pill.easypay_fawry_ref
+                    if not ref_number:
+                        logger.warning(f"⚠️ [INVOICE_CANCEL] Pill {pill.pill_number} has invoice UID but no fawry_ref, skipping cancellation")
+                        # Mark pill as cancelled anyway if no fawry_ref
+                        logger.info(f"🚫 [PILL_CANCEL] Marking pill {pill.pill_number} (ID: {pill.id}) as cancelled without invoice cancellation")
+                        pill.status = 'c'
+                        pill.save(update_fields=['status'])
+                        logger.info(f"✅ [PILL_CANCEL] Successfully marked pill {pill.pill_number} as cancelled")
+                        continue
+                    
+                    logger.info(f"📞 [INVOICE_CANCEL] Attempting to cancel EasyPay invoice for pill {pill.pill_number} (fawry_ref: {ref_number})")
+                    
+                    result = easypay_service.cancel_invoice(ref_number)
+                    
+                    if result['success']:
+                        logger.info(f"✅ [INVOICE_CANCEL] Successfully cancelled EasyPay invoice for pill {pill.pill_number}")
+                    else:
+                        error_msg = result.get('error', 'Unknown error')
+                        logger.error(f"❌ [INVOICE_CANCEL] Failed to cancel EasyPay invoice for pill {pill.pill_number}: {error_msg}")
+                        # Raise exception to abort the transaction
+                        raise ValidationError({
+                            'invoice_cancellation': f'فشل إلغاء فاتورة الطلب {pill.pill_number}: {error_msg}'
+                        })
+                except ValidationError:
+                    # Re-raise ValidationError as-is
+                    raise
+                except Exception as e:
+                    logger.error(f"❌ [INVOICE_CANCEL] Exception while cancelling EasyPay invoice for pill {pill.pill_number}: {str(e)}")
+                    # Raise exception to abort the transaction
+                    raise ValidationError({
+                        'invoice_cancellation': f'حدث استثناء أثناء إلغاء فاتورة الطلب {pill.pill_number}: {str(e)}'
+                    })
+            else:
+                logger.info(f"ℹ️ [INVOICE_CANCEL] Pill {pill.pill_number} has no invoice, skipping cancellation")
+            
+            # Mark the pill as cancelled instead of deleting
+            logger.info(f"🚫 [PILL_CANCEL] Marking pill {pill.pill_number} (ID: {pill.id}) as cancelled for user {user.id}")
+            pill.status = 'c'
+            pill.save(update_fields=['status'])
+            logger.info(f"✅ [PILL_CANCEL] Successfully marked pill {pill.pill_number} as cancelled")
+        
+        if unpaid_pills.count() > 0:
+            logger.info(f"✅ [PILL_CREATION] Successfully cancelled {unpaid_pills.count()} unpaid pill(s) for user {user.id}")
+
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
@@ -1196,6 +1272,38 @@ class PillDetailWithoutItemsSerializer(serializers.ModelSerializer):
 
     def get_final_price(self, obj):
         return float(obj.final_price())
+
+
+class UnpaidPillListSerializer(serializers.ModelSerializer):
+    """Serializer for listing unpaid pills with relevant details for student awareness"""
+    status_display = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Pill
+        fields = [
+            'id',
+            'pill_number',
+            'status_display',
+        ]
+        read_only_fields = [
+            'id',
+            'pill_number',
+            'status_display',
+        ]
+
+    def get_status_display(self, obj):
+        return obj.get_status_display()
+
+    def get_has_invoice(self, obj):
+        """Check if pill has an EasyPay or Shake-out invoice"""
+        return bool(
+            obj.easypay_invoice_uid or 
+            obj.easypay_fawry_ref or 
+            obj.shakeout_invoice_id
+        )
+
+    def get_items_count(self, obj):
+        return obj.items.count()
 
 
 class DiscountSerializer(serializers.ModelSerializer):
@@ -1527,12 +1635,6 @@ class PillCouponApplySerializer(serializers.ModelSerializer):
             is_new_coupon = instance.coupon_id != coupon_for_update.pk
 
             if is_new_coupon:
-                updated = CouponDiscount.objects.filter(
-                    pk=coupon_for_update.pk,
-                    available_use_times__gt=0
-                ).update(available_use_times=F('available_use_times') - 1)
-                if not updated:
-                    raise serializers.ValidationError({'coupon_code': 'وصل هذا الكوبون إلى حد الاستخدام.'})
                 instance.coupon = coupon_for_update
 
             instance.coupon_discount = discount_amount

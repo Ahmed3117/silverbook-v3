@@ -388,6 +388,113 @@ class EasyPayService:
                 'error': f"Unexpected error: {str(e)}"
             }
 
+    def cancel_invoice(self, ref_number):
+        """Cancel an unpaid EasyPay invoice
+        
+        Args:
+            ref_number (str): The merchant reference number (pill ID or invoice reference)
+            
+        Returns:
+            dict: {'success': bool, 'error': str or None}
+        """
+        try:
+            logger.info(f"Cancelling EasyPay invoice with ref_number: {ref_number}")
+            
+            # Build signature string in the correct order per EasyPay docs
+            # Pattern: ref_number + vendor_code + secret_key
+            signature_string = f"{ref_number}{self.vendor_code}{self.secret_key}"
+            signature = hashlib.sha256(signature_string.encode("utf-8")).hexdigest()
+            
+            logger.debug(f"Cancel signature string: {signature_string}")
+            logger.debug(f"Cancel signature: {signature}")
+            
+            # Prepare payload
+            payload = {
+                "vendor_code": self.vendor_code,
+                "ref_number": ref_number,
+                "signature": signature
+            }
+            
+            # Cancel invoice URL
+            cancel_url = f"{self.base_url}/invoice-cancel/"
+            
+            logger.info(f"Sending cancel request to: {cancel_url}")
+            logger.info(f"Cancel payload: {json.dumps(payload, indent=2)}")
+            
+            # Make API request
+            response = requests.post(
+                cancel_url,
+                headers=self.headers,
+                json=payload,
+                timeout=30
+            )
+            
+            logger.info(f"EasyPay cancel response status: {response.status_code}")
+            logger.info(f"EasyPay cancel response headers: {dict(response.headers)}")
+            logger.info(f"EasyPay cancel response text: {response.text}")
+            
+            # Accept 200 as successful response
+            if response.status_code == 200:
+                # Check if response has content
+                if not response.text or not response.text.strip():
+                    logger.info(f"✓ EasyPay invoice cancelled successfully (empty response) for ref_number {ref_number}")
+                    return {
+                        'success': True,
+                        'data': {}
+                    }
+                
+                # Try to parse JSON response
+                try:
+                    response_data = response.json()
+                    logger.info(f"✓ EasyPay invoice cancelled successfully for ref_number {ref_number}")
+                    return {
+                        'success': True,
+                        'data': response_data
+                    }
+                except json.JSONDecodeError as e:
+                    logger.warning(f"⚠️ Cancel succeeded (HTTP 200) but response is not JSON: {response.text}")
+                    return {
+                        'success': True,
+                        'data': {'raw_response': response.text}
+                    }
+            else:
+                # Handle error responses
+                try:
+                    error_data = response.json()
+                    error_message = error_data.get('error', error_data.get('message', error_data.get('detail', f'HTTP {response.status_code}')))
+                except json.JSONDecodeError:
+                    # Response is not JSON, use raw text
+                    error_message = f'HTTP {response.status_code}: {response.text[:200]}'  # Limit length
+                except Exception as e:
+                    error_message = f'HTTP {response.status_code}'
+                
+                logger.error(f"EasyPay cancel API error: {error_message}")
+                return {
+                    'success': False,
+                    'error': error_message
+                }
+                
+        except requests.exceptions.Timeout:
+            logger.error("EasyPay cancel API request timed out")
+            return {
+                'success': False,
+                'error': 'EasyPay cancel API request timed out'
+            }
+        except requests.exceptions.RequestException as e:
+            logger.error(f"EasyPay cancel API request failed: {str(e)}")
+            return {
+                'success': False,
+                'error': f'EasyPay cancel API request failed: {str(e)}'
+            }
+        except Exception as e:
+            logger.error(f"Unexpected error cancelling EasyPay invoice: {str(e)}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return {
+                'success': False,
+                'error': f'Unexpected error: {str(e)}'
+            }
+
 
 # Create a singleton instance
 easypay_service = EasyPayService()

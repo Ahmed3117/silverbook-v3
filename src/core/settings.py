@@ -163,7 +163,7 @@ EMAIL_HOST_PASSWORD = 'meczfpooichwkudl'
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'accounts.authentication.MultiDeviceJWTAuthentication',  # Custom JWT auth with device checks
     ],
     'DEFAULT_FILTER_BACKENDS': [
         'django_filters.rest_framework.DjangoFilterBackend'
@@ -296,7 +296,7 @@ ACTIVE_PAYMENT_METHOD = os.getenv('ACTIVE_PAYMENT_METHOD', 'easypay').lower()  #
 SITE_URL = os.getenv('SITE_URL', 'http://127.0.0.1:9000')
 
 # Deeplink Configuration
-DEEPLINK_SCHEME = os.getenv('DEEPLINK_SCHEME', 'com.easytech.booklet')
+DEEPLINK_SCHEME = os.getenv('DEEPLINK_SCHEME', 'booklet')
 
 # Shake-out Configuration - with fallbacks and validation
 SHAKEOUT_API_KEY = os.getenv('SHAKEOUT_API_KEY', '')
