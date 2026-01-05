@@ -764,7 +764,7 @@ class UsersListView(generics.ListAPIView):
     ordering_fields = ['id', 'created_at', 'username', 'name', 'email', 'year', 'division']
     ordering = ['-created_at']
     search_fields = ['username', 'name', 'email', 'government']
-    filterset_class = AdminUserFilter
+    filterset_fields = ['is_banned']
 
     def get_queryset(self):
         return User.objects.filter(is_staff=False, is_superuser=False).order_by('-created_at')
@@ -787,6 +787,7 @@ class StudentDeviceListView(generics.ListAPIView):
     """
     List all students with their devices.
     Admin can see all registered devices for each student.
+    Can filter by is_banned.
     """
     serializer_class = StudentDeviceListSerializer
     permission_classes = [IsAdminUser]
@@ -794,6 +795,7 @@ class StudentDeviceListView(generics.ListAPIView):
     search_fields = ['username', 'name']
     ordering_fields = ['id', 'created_at', 'username', 'name', 'max_allowed_devices']
     ordering = ['-created_at']
+    filterset_fields = ['is_banned']
     
     def get_queryset(self):
         return User.objects.filter(user_type='student', is_staff=False, is_superuser=False).prefetch_related('devices').order_by('-created_at')
