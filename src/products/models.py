@@ -478,7 +478,8 @@ class Pill(models.Model):
         try:
             # Build deeplink URL
             deeplink_path = reverse('products:deeplink', args=['mybooks'])
-            deeplink_url = f"{settings.SITE_URL}{deeplink_path}"
+            # deeplink_url = f"{settings.SITE_URL}{deeplink_path}"
+            deeplink_url = settings.DEEPLINK_URL
             
             # Prepare SMS message
             message = (
