@@ -60,7 +60,7 @@ class MultiDeviceJWTAuthentication(JWTAuthentication):
                 
                 if not device:
                     raise AuthenticationFailed(
-                        detail='Session expired. This device has been logged out or removed.',
+                        detail='انتهت الجلسة. تم تسجيل الخروج من هذا الجهاز أو تمت إزالته.',
                         code='device_token_invalid'
                     )
                 
