@@ -516,6 +516,9 @@ def reset_password_confirm(request):
             user.set_password(new_password)
             user.save()
             
+            # Logout user from all devices
+            UserDevice.objects.filter(user=user, is_active=True).update(is_active=False)
+            
             return Response({
                 'success': True,
                 'message': 'تم إعادة تعيين كلمة المرور بنجاح'
@@ -657,11 +660,14 @@ def change_password(request):
         user.set_password(new_password)
         user.save()
         
-        # Update session to prevent logout
+        # Logout user from all devices (invalidate all JWT tokens)
+        UserDevice.objects.filter(user=user, is_active=True).update(is_active=False)
+        
+        # Update session to prevent logout (for session-based auth, if used)
         update_session_auth_hash(request, user)
         
         return Response(
-            {'message': 'تم تحديث كلمة المرور بنجاح'}, 
+            {'message': 'تم تحديث كلمة المرور بنجاح. يجب عليك تسجيل الدخول مرة أخرى'}, 
             status=status.HTTP_200_OK
         )
     
@@ -706,9 +712,17 @@ class UserUpdateAPIView(APIView):
         except User.DoesNotExist:
             return Response({'error': 'المستخدم غير موجود'}, status=status.HTTP_404_NOT_FOUND)
         
+        # Check if password is being changed
+        password_changed = 'password' in request.data
+        
         serializer = UserSerializer(user, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
+            
+            # If password was changed, logout user from all devices
+            if password_changed:
+                UserDevice.objects.filter(user=user, is_active=True).update(is_active=False)
+            
             return Response(serializer.data, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
