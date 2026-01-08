@@ -1516,13 +1516,15 @@ class PurchasedBookSerializer(serializers.ModelSerializer):
     def get_base_image(self, obj):
         product = self._product(obj)
         if product and product.base_image:
-            return self._build_absolute_uri(product.base_image.url)
+            request = self.context.get('request')
+            return get_full_file_url(product.base_image, request)
         return None
 
     def get_pdf_file(self, obj):
         product = self._product(obj)
         if product and product.pdf_file:
-            return self._build_absolute_uri(product.pdf_file.url)
+            request = self.context.get('request')
+            return get_full_file_url(product.pdf_file, request)
         return None
 
     def get_related_products(self, obj):
