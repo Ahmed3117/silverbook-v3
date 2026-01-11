@@ -68,7 +68,7 @@ class MultiDeviceJWTAuthentication(JWTAuthentication):
                 if device.is_banned:
                     raise AuthenticationFailed(
                         detail='لقد تم حظر هذا الجهاز',
-                        code='device_banned'
+                        code='device_banned'  
                     )
                 
                 # Update last_used_at timestamp

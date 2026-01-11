@@ -30,11 +30,16 @@ def get_client_ip(request):
 
 def get_device_info_from_request(request):
     """
-    Extract device information from request headers.
-    Returns a dict with IP, User-Agent, and parsed device name.
+    Extract device information from request headers and body.
+    Returns a dict with IP, User-Agent, device_id, and parsed device name.
     """
     ip_address = get_client_ip(request)
     user_agent = request.META.get('HTTP_USER_AGENT', 'Unknown')
+    
+    # Get device_id from request data (if sent by mobile app)
+    device_id = None
+    if hasattr(request, 'data') and isinstance(request.data, dict):
+        device_id = request.data.get('device_id')
     
     # Parse User-Agent to get a friendly device name
     device_name = 'Unknown Device'
@@ -59,6 +64,7 @@ def get_device_info_from_request(request):
     return {
         'ip_address': ip_address,
         'user_agent': user_agent,
+        'device_id': device_id,
         'device_name': device_name
     }
 from accounts.pagination import CustomPageNumberPagination
@@ -76,7 +82,7 @@ from .serializers import (
     StudentDeviceListSerializer,
     UpdateMaxDevicesSerializer,
 )
-from .models import User, UserProfileImage, UserDevice
+from .models import DeletedUserArchive, User, UserProfileImage, UserDevice
 from django.contrib.auth import update_session_auth_hash
 from rest_framework import generics
 from rest_framework.filters import SearchFilter, OrderingFilter
@@ -311,12 +317,87 @@ def resend_signup_otp(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def signin(request):
+    from services.security_service import security_service
+    
     username = request.data.get('username')
     password = request.data.get('password')
+    
+    if not username:
+        return Response({'error': 'رقم الهاتف مطلوب'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Get client info for tracking
+    device_info_data = get_device_info_from_request(request)
+    ip_address = device_info_data['ip_address']
+    user_agent = device_info_data['user_agent']
+    device_id = device_info_data.get('device_id')
+    
+    # Check if user is blocked before attempting authentication
+    block_status = security_service.get_block_status(username, 'login')
+    if block_status and block_status['is_blocked']:
+        # Record blocked attempt
+        security_service.check_and_record_attempt(
+            phone_number=username,
+            attempt_type='login',
+            success=False,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            device_id=device_id,
+            failure_reason='Blocked due to too many failed attempts'
+        )
+        
+        return Response({
+            'error': block_status['message_ar'],
+            'error_code': 'account_blocked',
+            'blocked_until': block_status['blocked_until'],
+            'remaining_seconds': block_status['remaining_seconds'],
+            'remaining_time': block_status['remaining_formatted'],
+            'block_level': block_status['block_level']
+        }, status=status.HTTP_403_FORBIDDEN)
 
+    # Attempt authentication
     user = authenticate(username=username, password=password)
+    
     if not user:
-        return Response({'error': 'بيانات الدخول غير صحيحة، من فضلك تحقق.'}, status=status.HTTP_400_BAD_REQUEST)
+        # Failed login - record attempt and check for block
+        attempt_result = security_service.check_and_record_attempt(
+            phone_number=username,
+            attempt_type='login',
+            success=False,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            device_id=device_id,
+            failure_reason='Invalid credentials'
+        )
+        
+        if not attempt_result['allowed']:
+            # Just hit the threshold or already blocked
+            block_info = attempt_result['block_info']
+            return Response({
+                'error': block_info['message_ar'],
+                'error_code': 'account_blocked',
+                'blocked_until': block_info['blocked_until'],
+                'remaining_seconds': block_info['remaining_seconds'],
+                'remaining_time': block_info['remaining_formatted'],
+                'block_level': block_info['block_level']
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Not blocked yet - return error with remaining attempts
+        response_data = {'error': 'بيانات الدخول غير صحيحة، من فضلك تحقق.'}
+        if 'remaining_attempts' in attempt_result:
+            response_data['remaining_attempts'] = attempt_result['remaining_attempts']
+            response_data['warning'] = f"لديك {attempt_result['remaining_attempts']} محاولة متبقية قبل حظر الحساب مؤقتاً"
+        
+        return Response(response_data, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Successful authentication - record success
+    security_service.check_and_record_attempt(
+        phone_number=username,
+        attempt_type='login',
+        success=True,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        device_id=device_id
+    )
     
     # Check if user is banned
     if user.is_banned:
@@ -329,8 +410,6 @@ def signin(request):
         if user.user_type == 'student':
             device_id = request.data.get('device_id')
             device_name_from_request = request.data.get('device_name')
-            device_info_data = get_device_info_from_request(request)
-            ip_address = device_info_data['ip_address']
             final_device_name = device_name_from_request or device_info_data['device_name']
 
             existing_device = None
@@ -368,7 +447,7 @@ def signin(request):
                     # Device exists but not active - reactivate it if under limit
                     active_devices_count = UserDevice.objects.filter(user=user, is_active=True).count()
                     if active_devices_count >= user.max_allowed_devices:
-                        return Response({'error': 'لقد تجاوزت العدد المسموح به من الأجهزة لتسجيل الدخول إلى حسابك .'}, status=status.HTTP_403_FORBIDDEN)
+                        return Response({'error': 'لقد تجاوزت العدد المسموح به من الأجهزة لتسجيل الدخول إلى حسابك , يمكنك المتابعة من الاجهزة الاخرى التى سجلت بها من قبل او التواصل مع الدعم لتمكينك من الدخول بهذا الجاز .'}, status=status.HTTP_403_FORBIDDEN)
                     
                     existing_device.is_active = True
                     existing_device.last_used_at = timezone.now()
@@ -383,7 +462,7 @@ def signin(request):
                 # New device - check if user has reached limit
                 active_devices_count = UserDevice.objects.filter(user=user, is_active=True).count()
                 if active_devices_count >= user.max_allowed_devices:
-                    return Response({'error': 'لقد تجاوزت العدد المسموح به من الأجهزة لتسجيل الدخول إلى حسابك .'}, status=status.HTTP_403_FORBIDDEN)
+                    return Response({'error': 'لقد تجاوزت العدد المسموح به من الأجهزة لتسجيل الدخول إلى حسابك , يمكنك المتابعة من الاجهزة الاخرى التى سجلت بها من قبل او التواصل مع الدعم لتمكينك من الدخول بهذا الجاز .'}, status=status.HTTP_403_FORBIDDEN)
 
                 device_token = secrets.token_hex(32)
                 UserDevice.objects.create(
@@ -405,6 +484,7 @@ def signin(request):
             'access': str(refresh.access_token),
         })
     except Exception as e:
+        logger.error(f"Error during signin for {username}: {str(e)}")
         return Response({'error': 'فشل إنشاء رمز المصادقة.'}, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -441,13 +521,66 @@ def request_password_reset(request):
     Uses the new generic OTP service with rate limiting and attempt tracking
     """
     from services.otp_service import otp_service
+    from services.security_service import security_service
     
     serializer = PasswordResetRequestSerializer(data=request.data)
     if serializer.is_valid():
         username = serializer.validated_data['username']
+        
+        # Get client info for tracking
+        device_info_data = get_device_info_from_request(request)
+        ip_address = device_info_data['ip_address']
+        user_agent = device_info_data['user_agent']
+        device_id = device_info_data.get('device_id')
+        
+        # Check if user is blocked before attempting
+        block_status = security_service.get_block_status(username, 'password_reset')
+        if block_status and block_status['is_blocked']:
+            # Record blocked attempt
+            security_service.check_and_record_attempt(
+                phone_number=username,
+                attempt_type='password_reset',
+                success=False,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                device_id=device_id,
+                failure_reason='Blocked due to too many reset requests'
+            )
+            
+            return Response({
+                'error': block_status['message_ar'],
+                'error_code': 'account_blocked',
+                'blocked_until': block_status['blocked_until'],
+                'remaining_seconds': block_status['remaining_seconds'],
+                'remaining_time': block_status['remaining_formatted'],
+                'block_level': block_status['block_level']
+            }, status=status.HTTP_403_FORBIDDEN)
+        
         try:
             user = User.objects.filter(username=username).first()
             if not user:
+                # Record failed attempt (user not found)
+                attempt_result = security_service.check_and_record_attempt(
+                    phone_number=username,
+                    attempt_type='password_reset',
+                    success=False,
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                    device_id=device_id,
+                    failure_reason='User not found'
+                )
+                
+                if not attempt_result['allowed']:
+                    block_info = attempt_result['block_info']
+                    return Response({
+                        'error': block_info['message_ar'],
+                        'error_code': 'account_blocked',
+                        'blocked_until': block_info['blocked_until'],
+                        'remaining_seconds': block_info['remaining_seconds'],
+                        'remaining_time': block_info['remaining_formatted'],
+                        'block_level': block_info['block_level']
+                    }, status=status.HTTP_403_FORBIDDEN)
+                
                 return Response({'error': 'المستخدم غير موجود'}, status=status.HTTP_400_BAD_REQUEST)
             
             # Use new OTP service
@@ -458,19 +591,58 @@ def request_password_reset(request):
             )
             
             if otp_result['success']:
+                # Record successful attempt
+                security_service.check_and_record_attempt(
+                    phone_number=username,
+                    attempt_type='password_reset',
+                    success=True,
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                    device_id=device_id
+                )
+                
                 return Response({
                     'success': True,
                     'message': otp_result['message'],
                     'expires_in_minutes': otp_result['expires_in_minutes']
                 }, status=status.HTTP_200_OK)
             else:
+                # OTP send failed - record as failed attempt
+                attempt_result = security_service.check_and_record_attempt(
+                    phone_number=username,
+                    attempt_type='password_reset',
+                    success=False,
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                    device_id=device_id,
+                    failure_reason=f"OTP send failed: {otp_result.get('error', 'Unknown')}"
+                )
+                
                 logger.error(f"Password reset OTP failed for {username}: {otp_result}")
-                return Response({
+                
+                if not attempt_result['allowed']:
+                    block_info = attempt_result['block_info']
+                    return Response({
+                        'error': block_info['message_ar'],
+                        'error_code': 'account_blocked',
+                        'blocked_until': block_info['blocked_until'],
+                        'remaining_seconds': block_info['remaining_seconds'],
+                        'remaining_time': block_info['remaining_formatted'],
+                        'block_level': block_info['block_level']
+                    }, status=status.HTTP_403_FORBIDDEN)
+                
+                response_data = {
                     'error': otp_result.get('error', 'فشل إرسال رمز التحقق'),
-                    'details': otp_result.get('details'),  # Include error details for debugging
+                    'details': otp_result.get('details'),
                     'wait_time': otp_result.get('wait_time'),
                     'max_attempts_reached': otp_result.get('max_attempts_reached', False)
-                }, status=status.HTTP_400_BAD_REQUEST)
+                }
+                
+                if 'remaining_attempts' in attempt_result:
+                    response_data['remaining_attempts'] = attempt_result['remaining_attempts']
+                    response_data['warning'] = f"لديك {attempt_result['remaining_attempts']} محاولة متبقية قبل حظر الحساب مؤقتاً"
+                
+                return Response(response_data, status=status.HTTP_400_BAD_REQUEST)
                 
         except Exception as e:
             logger.error(f"Exception in password reset for {username}: {str(e)}")
@@ -541,14 +713,55 @@ def resend_password_reset_otp(request):
     }
     """
     from services.otp_service import otp_service
+    from services.security_service import security_service
     
     username = request.data.get('username')
     if not username:
         return Response({'error': 'رقم الهاتف مطلوب'}, status=status.HTTP_400_BAD_REQUEST)
     
+    # Get client info for tracking
+    device_info_data = get_device_info_from_request(request)
+    ip_address = device_info_data['ip_address']
+    user_agent = device_info_data['user_agent']
+    device_id = device_info_data.get('device_id')
+    
+    # Check if user is blocked
+    block_status = security_service.get_block_status(username, 'password_reset')
+    if block_status and block_status['is_blocked']:
+        return Response({
+            'error': block_status['message_ar'],
+            'error_code': 'account_blocked',
+            'blocked_until': block_status['blocked_until'],
+            'remaining_seconds': block_status['remaining_seconds'],
+            'remaining_time': block_status['remaining_formatted'],
+            'block_level': block_status['block_level']
+        }, status=status.HTTP_403_FORBIDDEN)
+    
     # Check if user exists
     user = User.objects.filter(username=username).first()
     if not user:
+        # Record failed attempt
+        attempt_result = security_service.check_and_record_attempt(
+            phone_number=username,
+            attempt_type='password_reset',
+            success=False,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            device_id=device_id,
+            failure_reason='User not found'
+        )
+        
+        if not attempt_result['allowed']:
+            block_info = attempt_result['block_info']
+            return Response({
+                'error': block_info['message_ar'],
+                'error_code': 'account_blocked',
+                'blocked_until': block_info['blocked_until'],
+                'remaining_seconds': block_info['remaining_seconds'],
+                'remaining_time': block_info['remaining_formatted'],
+                'block_level': block_info['block_level']
+            }, status=status.HTTP_403_FORBIDDEN)
+        
         return Response({'error': 'المستخدم غير موجود'}, status=status.HTTP_400_BAD_REQUEST)
     
     # Send OTP
@@ -559,17 +772,55 @@ def resend_password_reset_otp(request):
     )
     
     if otp_result['success']:
+        # Record successful attempt
+        security_service.check_and_record_attempt(
+            phone_number=username,
+            attempt_type='password_reset',
+            success=True,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            device_id=device_id
+        )
+        
         return Response({
             'success': True,
             'message': otp_result['message'],
             'expires_in_minutes': otp_result['expires_in_minutes']
         }, status=status.HTTP_200_OK)
     else:
-        return Response({
+        # Record failed attempt
+        attempt_result = security_service.check_and_record_attempt(
+            phone_number=username,
+            attempt_type='password_reset',
+            success=False,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            device_id=device_id,
+            failure_reason=f"OTP resend failed: {otp_result.get('error', 'Unknown')}"
+        )
+        
+        if not attempt_result['allowed']:
+            block_info = attempt_result['block_info']
+            return Response({
+                'error': block_info['message_ar'],
+                'error_code': 'account_blocked',
+                'blocked_until': block_info['blocked_until'],
+                'remaining_seconds': block_info['remaining_seconds'],
+                'remaining_time': block_info['remaining_formatted'],
+                'block_level': block_info['block_level']
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        response_data = {
             'error': otp_result.get('error', 'فشل إرسال رمز التحقق'),
             'wait_time': otp_result.get('wait_time'),
             'max_attempts_reached': otp_result.get('max_attempts_reached', False)
-        }, status=status.HTTP_400_BAD_REQUEST)
+        }
+        
+        if 'remaining_attempts' in attempt_result:
+            response_data['remaining_attempts'] = attempt_result['remaining_attempts']
+            response_data['warning'] = f"لديك {attempt_result['remaining_attempts']} محاولة متبقية قبل حظر الحساب مؤقتاً"
+        
+        return Response(response_data, status=status.HTTP_400_BAD_REQUEST)
 
 
 
@@ -633,6 +884,57 @@ class DeleteAccountView(APIView):
             return Response({'error': 'لا يمكن حذف حسابات المدير عبر هذا المسار.'}, status=status.HTTP_400_BAD_REQUEST)
 
         username = user.username
+        
+        # Archive user data before deletion
+        logger.info(f"🗄️ [USER_DELETE] Archiving user {username} before self-deletion")
+        
+        # Get purchased books
+        from products.models import PurchasedBook, Product
+        purchased_books = PurchasedBook.objects.filter(user=user).select_related('product')
+        
+        purchased_books_data = []
+        for pb in purchased_books:
+            purchased_books_data.append({
+                'product_id': pb.product.id,
+                'product_name': pb.product.name,
+                'product_type': pb.product.product_type,
+                'purchased_at': pb.purchased_at.isoformat() if pb.purchased_at else None
+            })
+        
+        # Create archive
+        archive = DeletedUserArchive.objects.create(
+            original_user_id=user.id,
+            username=user.username,
+            name=user.name,
+            email=user.email,
+            user_type=user.user_type,
+            parent_phone=user.parent_phone,
+            year=user.year,
+            division=user.division,
+            government=user.government,
+            max_allowed_devices=user.max_allowed_devices,
+            was_banned=user.is_banned,
+            ban_reason=user.ban_reason,
+            original_created_at=user.created_at,
+            deleted_by=None,  # Self-deletion
+            deletion_reason='حذف ذاتي من قبل المستخدم (Self-deletion)',
+            purchased_books_data=purchased_books_data,
+            user_data_snapshot={
+                'id': user.id,
+                'username': user.username,
+                'name': user.name,
+                'email': user.email,
+                'user_type': user.user_type,
+                'parent_phone': user.parent_phone,
+                'year': user.year,
+                'division': user.division,
+                'government': user.government,
+                'created_at': user.created_at.isoformat() if user.created_at else None,
+            }
+        )
+        
+        logger.info(f"✅ [USER_DELETE] Archived user {username} with {len(purchased_books_data)} book(s) - Archive ID: {archive.id}")
+        
         user.delete()
         return Response(
             {
@@ -730,13 +1032,90 @@ class UserDeleteAPIView(APIView):
     permission_classes = [IsAdminUser]
 
     def delete(self, request, pk):
+        import logging
+        from django.db import transaction
+        from accounts.models import DeletedUserArchive
+        
+        logger = logging.getLogger(__name__)
+        
         try:
             user = User.objects.get(pk=pk)
         except User.DoesNotExist:
             return Response({'error': 'المستخدم غير موجود'}, status=status.HTTP_404_NOT_FOUND)
         
-        user.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        # Archive user data before deletion
+        with transaction.atomic():
+            logger.info(f"🗄️ [USER_DELETE] Archiving user {user.username} (ID: {user.id}) before deletion")
+            
+            # Get all purchased books for this user
+            from products.models import PurchasedBook
+            purchased_books = PurchasedBook.objects.filter(user=user).select_related('product')
+            
+            # Prepare purchased books data
+            books_data = []
+            for pb in purchased_books:
+                books_data.append({
+                    'product_id': pb.product.id,
+                    'product_name': pb.product_name or pb.product.name,
+                    'product_number': pb.product.product_number,
+                    'price_at_sale': pb.price_at_sale,
+                    'purchased_at': pb.created_at.isoformat() if pb.created_at else None,
+                    'pill_number': pb.pill.pill_number if pb.pill else None,
+                })
+            
+            # Create user data snapshot
+            user_snapshot = {
+                'username': user.username,
+                'name': user.name,
+                'email': user.email,
+                'user_type': user.user_type,
+                'parent_phone': user.parent_phone,
+                'year': user.year,
+                'division': user.division,
+                'government': user.government,
+                'max_allowed_devices': user.max_allowed_devices,
+                'is_banned': user.is_banned,
+                'ban_reason': user.ban_reason,
+                'created_at': user.created_at.isoformat() if user.created_at else None,
+            }
+            
+            # Create archive record
+            archive = DeletedUserArchive.objects.create(
+                original_user_id=user.id,
+                username=user.username,
+                name=user.name,
+                email=user.email,
+                user_type=user.user_type,
+                parent_phone=user.parent_phone,
+                year=user.year,
+                division=user.division,
+                government=user.government,
+                max_allowed_devices=user.max_allowed_devices,
+                was_banned=user.is_banned,
+                ban_reason=user.ban_reason,
+                original_created_at=user.created_at,
+                deleted_by=request.user,
+                deletion_reason=request.data.get('reason', ''),
+                purchased_books_data=books_data,
+                user_data_snapshot=user_snapshot
+            )
+            
+            logger.info(f"✅ [USER_DELETE] Archived user {user.username} with {len(books_data)} purchased book(s)")
+            logger.info(f"📦 [USER_DELETE] Archive ID: {archive.id}")
+            
+            # Now delete the user (this will cascade delete related records)
+            user_name = user.name
+            user_username = user.username
+            user.delete()
+            
+            logger.info(f"✅ [USER_DELETE] Deleted user {user_username} ({user_name})")
+        
+        return Response({
+            'success': True,
+            'message': f'تم حذف المستخدم {user_name} وحفظ بياناته في الأرشيف',
+            'archive_id': archive.id,
+            'archived_books_count': len(books_data)
+        }, status=status.HTTP_200_OK)
 
 class UserProfileImageListCreateView(generics.ListCreateAPIView):
     queryset = UserProfileImage.objects.all()
@@ -1022,12 +1401,176 @@ def unban_student(request, pk):
     # Unban the user
     student.is_banned = False
     student.banned_at = None
-    student.ban_reason = None
+    student.ban_reason = ''
     student.save(update_fields=['is_banned', 'banned_at', 'ban_reason'])
     
     return Response({
         'message': f'تم إلغاء حظر الطالب "{student.name}" بنجاح'
     })
+
+
+# ============== Deleted User Archive Views ==============
+
+class DeletedUserArchiveListView(generics.ListAPIView):
+    """
+    List all deleted user archives
+    GET /accounts/dashboard/deleted-users/
+    """
+    from accounts.models import DeletedUserArchive
+    from accounts.serializers import DeletedUserArchiveSerializer
+    
+    queryset = DeletedUserArchive.objects.all().select_related('deleted_by')
+    serializer_class = DeletedUserArchiveSerializer
+    permission_classes = [IsAdminUser]
+    filter_backends = [SearchFilter, OrderingFilter, DjangoFilterBackend]
+    ordering_fields = ['id', 'deleted_at', 'original_created_at', 'username', 'name']
+    ordering = ['-deleted_at']
+    search_fields = ['username', 'name', 'email']
+    filterset_fields = ['user_type', 'was_banned']
+    
+    
+class DeletedUserArchiveDetailView(generics.RetrieveAPIView):
+    """
+    Retrieve details of a deleted user archive
+    GET /accounts/dashboard/deleted-users/<pk>/
+    """
+    from accounts.models import DeletedUserArchive
+    from accounts.serializers import DeletedUserArchiveSerializer
+    
+    queryset = DeletedUserArchive.objects.all().select_related('deleted_by')
+    serializer_class = DeletedUserArchiveSerializer
+    permission_classes = [IsAdminUser]
+
+
+class RestoreUserView(APIView):
+    """
+    Restore a deleted user from archive
+    POST /accounts/dashboard/deleted-users/restore/
+    
+    Body:
+    {
+        "archive_id": 1,
+        "restore_books": true
+    }
+    """
+    permission_classes = [IsAdminUser]
+    
+    def post(self, request):
+        import logging
+        from django.db import transaction, IntegrityError
+        from accounts.models import DeletedUserArchive
+        from products.models import Product, Pill, PillItem, PurchasedBook
+        
+        logger = logging.getLogger(__name__)
+        
+        archive_id = request.data.get('archive_id')
+        restore_books = request.data.get('restore_books', True)
+        custom_password = request.data.get('password', '')  # Optional password from admin
+        
+        if not archive_id:
+            return Response({'error': 'حقل archive_id مطلوب'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            archive = DeletedUserArchive.objects.get(id=archive_id)
+        except DeletedUserArchive.DoesNotExist:
+            return Response({'error': 'الأرشيف غير موجود'}, status=status.HTTP_404_NOT_FOUND)
+        
+        # Check if username already exists
+        if User.objects.filter(username=archive.username).exists():
+            return Response({
+                'error': f'اسم المستخدم {archive.username} موجود بالفعل. يجب حذف الحساب الحالي أولاً.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        with transaction.atomic():
+            logger.info(f"🔄 [USER_RESTORE] Restoring user {archive.username} from archive ID {archive_id}")
+            
+            # Use custom password if provided, otherwise generate a random one
+            if custom_password:
+                password_to_set = custom_password
+                logger.info(f"🔑 [USER_RESTORE] Using admin-provided password")
+            else:
+                import secrets
+                import string
+                password_to_set = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(12))
+                logger.info(f"🔑 [USER_RESTORE] Generated random password")
+            
+            # Recreate the user
+            restored_user = User.objects.create(
+                username=archive.username,
+                name=archive.name,
+                email=archive.email,
+                user_type=archive.user_type,
+                parent_phone=archive.parent_phone,
+                year=archive.year,
+                division=archive.division,
+                government=archive.government,
+                max_allowed_devices=archive.max_allowed_devices,
+                is_banned=False,  # Don't restore ban status
+                created_at=archive.original_created_at
+            )
+            
+            # Set the password
+            restored_user.set_password(password_to_set)
+            restored_user.save(update_fields=['password'])
+            
+            logger.info(f"✅ [USER_RESTORE] Restored user {restored_user.username} (new ID: {restored_user.id})")
+            
+            # Restore purchased books if requested
+            restored_books_count = 0
+            if restore_books and archive.purchased_books_data:
+                # Create a special pill for restored books
+                pill = Pill.objects.create(
+                    user=restored_user,
+                    status='p'
+                )
+                
+                for book_data in archive.purchased_books_data:
+                    try:
+                        product = Product.objects.get(id=book_data['product_id'])
+                        
+                        # Create PillItem
+                        pill_item = PillItem.objects.create(
+                            pill=pill,
+                            user=restored_user,
+                            product=product,
+                            status='p',
+                            price_at_sale=book_data.get('price_at_sale', 0.0),
+                            date_sold=timezone.now()
+                        )
+                        
+                        pill.items.add(pill_item)
+                        
+                        # Create PurchasedBook
+                        PurchasedBook.objects.create(
+                            user=restored_user,
+                            pill=pill,
+                            product=product,
+                            pill_item=pill_item,
+                            product_name=book_data['product_name']
+                        )
+                        
+                        restored_books_count += 1
+                        logger.info(f"📚 [USER_RESTORE] Restored book: {book_data['product_name']}")
+                        
+                    except Product.DoesNotExist:
+                        logger.warning(f"⚠️ [USER_RESTORE] Product {book_data['product_id']} not found, skipping")
+                        continue
+                
+                logger.info(f"✅ [USER_RESTORE] Restored {restored_books_count} book(s) for user {restored_user.username}")
+        
+        return Response({
+            'success': True,
+            'message': f'تم استعادة المستخدم {archive.name} بنجاح',
+            'data': {
+                'user_id': restored_user.id,
+                'username': restored_user.username,
+                'name': restored_user.name,
+                'password': password_to_set,
+                'password_note': 'كلمة المرور المؤقتة' if not custom_password else 'كلمة المرور المخصصة',
+                'restored_books_count': restored_books_count,
+                'original_archive_id': archive_id
+            }
+        }, status=status.HTTP_201_CREATED)
 
 
 @api_view(['POST'])

@@ -1,6 +1,9 @@
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 
+# Import security models
+from .security_models import SecurityBlock, AuthenticationAttempt
+
 GOVERNMENT_CHOICES = [
     ('1', 'Cairo'),
     ('2', 'Alexandria'),
@@ -318,3 +321,65 @@ class OTP(models.Model):
         """Check if OTP is expired"""
         from django.utils import timezone
         return timezone.now() > self.expires_at
+
+
+class DeletedUserArchive(models.Model):
+    """
+    Archive for deleted user accounts to maintain audit trail.
+    Stores user data and their purchased books before deletion.
+    """
+    # Original user data
+    original_user_id = models.IntegerField(help_text="Original user ID before deletion")
+    username = models.CharField(max_length=150, help_text="Phone number used as username")
+    name = models.CharField(max_length=100)
+    email = models.EmailField(blank=True, null=True)
+    user_type = models.CharField(max_length=20, choices=USER_TYPE_CHOICES)
+    parent_phone = models.CharField(max_length=20, null=True, blank=True)
+    year = models.CharField(max_length=20, choices=YEAR_CHOICES, null=True, blank=True)
+    division = models.CharField(max_length=20, choices=DIVISION_CHOICES, null=True, blank=True)
+    government = models.CharField(choices=GOVERNMENT_CHOICES, max_length=2, null=True, blank=True)
+    max_allowed_devices = models.PositiveIntegerField(default=2)
+    
+    # Ban information if user was banned
+    was_banned = models.BooleanField(default=False)
+    ban_reason = models.TextField(blank=True, null=True)
+    
+    # Original timestamps
+    original_created_at = models.DateTimeField(null=True, blank=True, help_text="When the user account was originally created")
+    
+    # Deletion metadata
+    deleted_at = models.DateTimeField(auto_now_add=True, help_text="When the user was deleted")
+    deleted_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='deleted_users',
+        help_text="Admin who deleted this user"
+    )
+    deletion_reason = models.TextField(blank=True, null=True, help_text="Reason for deletion")
+    
+    # Purchased books data (stored as JSON)
+    purchased_books_data = models.JSONField(
+        default=list,
+        help_text="List of purchased books with product details"
+    )
+    
+    # Full user data snapshot (for complete restoration if needed)
+    user_data_snapshot = models.JSONField(
+        default=dict,
+        help_text="Complete snapshot of user data at deletion time"
+    )
+    
+    class Meta:
+        ordering = ['-deleted_at']
+        verbose_name = 'Deleted User Archive'
+        verbose_name_plural = 'Deleted Users Archive'
+        indexes = [
+            models.Index(fields=['username']),
+            models.Index(fields=['original_user_id']),
+            models.Index(fields=['-deleted_at']),
+        ]
+    
+    def __str__(self):
+        return f"Deleted: {self.name} ({self.username}) - {self.deleted_at.strftime('%Y-%m-%d')}"

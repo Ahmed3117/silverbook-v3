@@ -1,6 +1,7 @@
 from django.urls import path
 from rest_framework_simplejwt.views import TokenRefreshView
 from . import views
+from . import security_views
 app_name="accounts"
 
 urlpatterns = [
@@ -48,6 +49,21 @@ urlpatterns = [
     path('dashboard/students/<int:pk>/unban/', views.unban_student, name='unban-student'),
     path('dashboard/students/<int:pk>/devices/<int:device_id>/ban/', views.ban_device, name='ban-device'),
     path('dashboard/students/<int:pk>/devices/<int:device_id>/unban/', views.unban_device, name='unban-device'),
+    
+    # Deleted User Archive (Admin)
+    path('dashboard/deleted-users/', views.DeletedUserArchiveListView.as_view(), name='deleted-users-list'),
+    path('dashboard/deleted-users/<int:pk>/', views.DeletedUserArchiveDetailView.as_view(), name='deleted-user-detail'),
+    path('dashboard/deleted-users/restore/', views.RestoreUserView.as_view(), name='restore-user'),
+    
+    # Security Management (Dashboard/Admin)
+    path('dashboard/security/blocks/', security_views.SecurityBlockListView.as_view(), name='security-blocks-list'),
+    path('dashboard/security/blocks/<int:pk>/', security_views.SecurityBlockDetailView.as_view(), name='security-block-detail'),
+    path('dashboard/security/blocks/<int:pk>/deactivate/', security_views.deactivate_block_view, name='security-block-deactivate'),
+    path('dashboard/security/unblock/', security_views.manual_unblock_view, name='security-unblock'),
+    path('dashboard/security/attempts/', security_views.AuthenticationAttemptListView.as_view(), name='security-attempts-list'),
+    path('dashboard/security/attempts/<int:pk>/', security_views.AuthenticationAttemptDetailView.as_view(), name='security-attempt-detail'),
+    path('dashboard/security/stats/', security_views.security_statistics_view, name='security-stats'),
+    path('dashboard/security/phone/<str:phone_number>/history/', security_views.phone_security_history_view, name='phone-security-history'),
     
     # Student's own devices
     path('my-devices/', views.my_devices, name='my-devices'),
