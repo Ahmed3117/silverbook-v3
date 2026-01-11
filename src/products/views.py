@@ -1172,9 +1172,96 @@ class PillListCreateView(generics.ListCreateAPIView):
         return PillSerializer
 
 class PillRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    Admin endpoint to retrieve, update, or delete a pill
+    GET /products/dashboard/pills/<pk>/
+    PUT /products/dashboard/pills/<pk>/
+    PATCH /products/dashboard/pills/<pk>/
+    DELETE /products/dashboard/pills/<pk>/
+    
+    Delete restrictions:
+    - Cannot delete paid pills (status='p')
+    - Cannot delete cancelled pills (status='c')
+    - Can only delete initiated ('i') or waiting ('w') pills
+    """
     queryset = Pill.objects.all()
     serializer_class = PillDetailWithoutItemsSerializer
     permission_classes = [IsAdminUser]
+    
+    def destroy(self, request, *args, **kwargs):
+        """Override destroy to cancel pills instead of deleting them"""
+        from services.easypay_service import easypay_service
+        
+        pill = self.get_object()
+        
+        # Prevent deletion of paid pills
+        if pill.status == 'p':
+            return Response({
+                'error': 'لا يمكن حذف فاتورة مدفوعة. الفواتير المدفوعة محمية من الحذف.',
+                'pill_number': pill.pill_number,
+                'status': pill.status,
+                'status_display': 'مدفوعة'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Prevent deletion of cancelled pills
+        if pill.status == 'c':
+            return Response({
+                'error': 'لا يمكن حذف فاتورة ملغاة. الفواتير الملغاة محفوظة للسجلات.',
+                'pill_number': pill.pill_number,
+                'status': pill.status,
+                'status_display': 'ملغاة'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Prevent deletion of expired pills
+        if pill.status == 'e':
+            return Response({
+                'error': 'لا يمكن حذف فاتورة منتهية الصلاحية. الفواتير المنتهية محفوظة للسجلات.',
+                'pill_number': pill.pill_number,
+                'status': pill.status,
+                'status_display': 'منتهية الصلاحية'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # For initiated ('i') or waiting ('w') pills, cancel them instead of deleting
+        if pill.status in ['i', 'w']:
+            logger.info(f"🚫 [ADMIN_CANCEL_PILL] Admin {request.user.username} cancelling pill {pill.pill_number} (status: {pill.status})")
+            
+            # Cancel EasyPay invoice if it exists
+            if pill.easypay_fawry_ref:
+                try:
+                    logger.info(f"📞 [ADMIN_CANCEL_PILL] Cancelling EasyPay invoice for pill {pill.pill_number} (fawry_ref: {pill.easypay_fawry_ref})")
+                    result = easypay_service.cancel_invoice(pill.easypay_fawry_ref)
+                    
+                    if result['success']:
+                        logger.info(f"✅ [ADMIN_CANCEL_PILL] Successfully cancelled invoice for pill {pill.pill_number}")
+                    else:
+                        logger.warning(f"⚠️ [ADMIN_CANCEL_PILL] Failed to cancel invoice for pill {pill.pill_number}: {result.get('error')}")
+                except Exception as e:
+                    logger.error(f"❌ [ADMIN_CANCEL_PILL] Exception cancelling invoice for pill {pill.pill_number}: {str(e)}")
+            
+            # Mark pill as cancelled
+            old_status = pill.status
+            pill.status = 'c'
+            pill.save(update_fields=['status'])
+            
+            logger.info(f"✅ [ADMIN_CANCEL_PILL] Cancelled pill {pill.pill_number} (status: {old_status} → c)")
+            
+            return Response({
+                'success': True,
+                'message': 'تم إلغاء الفاتورة بنجاح',
+                'data': {
+                    'pill_number': pill.pill_number,
+                    'old_status': old_status,
+                    'new_status': 'c',
+                    'status_display': 'ملغاة'
+                }
+            }, status=status.HTTP_200_OK)
+        
+        # Fallback for any other status
+        return Response({
+            'error': f'لا يمكن حذف فاتورة بحالة {pill.get_status_display()}.',
+            'pill_number': pill.pill_number,
+            'status': pill.status
+        }, status=status.HTTP_400_BAD_REQUEST)
 
 
 class PillItemsListView(generics.ListAPIView):
@@ -1352,6 +1439,49 @@ class AddBooksToStudentView(APIView):
             
             # Use transaction to ensure atomicity
             with transaction.atomic():
+                # Cancel any pending orders (status 'i' or 'w') that contain these products
+                from services.easypay_service import easypay_service
+                
+                # Find all pending pills for this user that contain any of these products
+                pending_pills = Pill.objects.filter(
+                    user=user,
+                    status__in=['i', 'w']
+                ).prefetch_related('items__product')
+                
+                cancelled_pills = []
+                for pending_pill in pending_pills:
+                    # Check if this pill contains any of the products being added
+                    pill_product_ids = set(pending_pill.items.values_list('product_id', flat=True))
+                    if pill_product_ids.intersection(set(product_ids)):
+                        logger.info(f"🚫 [ADMIN_ADD_BOOK] Cancelling pending pill {pending_pill.pill_number} for user {user.id}")
+                        
+                        # Cancel EasyPay invoice if it exists
+                        if pending_pill.easypay_fawry_ref:
+                            try:
+                                logger.info(f"📞 [ADMIN_ADD_BOOK] Cancelling EasyPay invoice for pill {pending_pill.pill_number} (fawry_ref: {pending_pill.easypay_fawry_ref})")
+                                result = easypay_service.cancel_invoice(pending_pill.easypay_fawry_ref)
+                                
+                                if result['success']:
+                                    logger.info(f"✅ [ADMIN_ADD_BOOK] Successfully cancelled invoice for pill {pending_pill.pill_number}")
+                                else:
+                                    logger.warning(f"⚠️ [ADMIN_ADD_BOOK] Failed to cancel invoice for pill {pending_pill.pill_number}: {result.get('error')}")
+                            except Exception as e:
+                                logger.error(f"❌ [ADMIN_ADD_BOOK] Exception cancelling invoice for pill {pending_pill.pill_number}: {str(e)}")
+                        
+                        # Mark pill as cancelled
+                        pending_pill.status = 'c'
+                        pending_pill.save(update_fields=['status'])
+                        
+                        cancelled_pills.append({
+                            'pill_number': pending_pill.pill_number,
+                            'status': 'cancelled'
+                        })
+                        
+                        logger.info(f"✅ [ADMIN_ADD_BOOK] Cancelled pill {pending_pill.pill_number}")
+                
+                if cancelled_pills:
+                    logger.info(f"✅ [ADMIN_ADD_BOOK] Cancelled {len(cancelled_pills)} pending pill(s) for user {user.id}")
+                
                 # Create a special pill for admin-added books
                 pill = Pill.objects.create(
                     user=user,
@@ -1416,8 +1546,10 @@ class AddBooksToStudentView(APIView):
                         'pill_number': pill.pill_number,
                         'added_books': added_books,
                         'skipped_books': skipped_books,
+                        'cancelled_pills': cancelled_pills,
                         'total_added': len(added_books),
-                        'total_skipped': len(skipped_books)
+                        'total_skipped': len(skipped_books),
+                        'total_cancelled': len(cancelled_pills)
                     }
                 }, status=status.HTTP_201_CREATED)
                 
@@ -1504,6 +1636,49 @@ class AdminPurchasedBookListCreateView(generics.ListCreateAPIView):
             skipped_books = []
             
             with transaction.atomic():
+                # Cancel any pending orders (status 'i' or 'w') that contain these products
+                from services.easypay_service import easypay_service
+                
+                # Find all pending pills for this user that contain any of these products
+                pending_pills = Pill.objects.filter(
+                    user=user,
+                    status__in=['i', 'w']
+                ).prefetch_related('items__product')
+                
+                cancelled_pills = []
+                for pending_pill in pending_pills:
+                    # Check if this pill contains any of the products being added
+                    pill_product_ids = set(pending_pill.items.values_list('product_id', flat=True))
+                    if pill_product_ids.intersection(set(products)):
+                        logger.info(f"🚫 [ADMIN_ADD_BOOK] Cancelling pending pill {pending_pill.pill_number} for user {user.id}")
+                        
+                        # Cancel EasyPay invoice if it exists
+                        if pending_pill.easypay_fawry_ref:
+                            try:
+                                logger.info(f"📞 [ADMIN_ADD_BOOK] Cancelling EasyPay invoice for pill {pending_pill.pill_number} (fawry_ref: {pending_pill.easypay_fawry_ref})")
+                                result = easypay_service.cancel_invoice(pending_pill.easypay_fawry_ref)
+                                
+                                if result['success']:
+                                    logger.info(f"✅ [ADMIN_ADD_BOOK] Successfully cancelled invoice for pill {pending_pill.pill_number}")
+                                else:
+                                    logger.warning(f"⚠️ [ADMIN_ADD_BOOK] Failed to cancel invoice for pill {pending_pill.pill_number}: {result.get('error')}")
+                            except Exception as e:
+                                logger.error(f"❌ [ADMIN_ADD_BOOK] Exception cancelling invoice for pill {pending_pill.pill_number}: {str(e)}")
+                        
+                        # Mark pill as cancelled
+                        pending_pill.status = 'c'
+                        pending_pill.save(update_fields=['status'])
+                        
+                        cancelled_pills.append({
+                            'pill_number': pending_pill.pill_number,
+                            'status': 'cancelled'
+                        })
+                        
+                        logger.info(f"✅ [ADMIN_ADD_BOOK] Cancelled pill {pending_pill.pill_number}")
+                
+                if cancelled_pills:
+                    logger.info(f"✅ [ADMIN_ADD_BOOK] Cancelled {len(cancelled_pills)} pending pill(s) for user {user.id}")
+                
                 for product in product_objs:
                     # Check if already exists
                     existing = PurchasedBook.objects.filter(
@@ -1537,8 +1712,10 @@ class AdminPurchasedBookListCreateView(generics.ListCreateAPIView):
                 'data': {
                     'created_books': created_books,
                     'skipped_books': skipped_books,
+                    'cancelled_pills': cancelled_pills,
                     'total_created': len(created_books),
-                    'total_skipped': len(skipped_books)
+                    'total_skipped': len(skipped_books),
+                    'total_cancelled': len(cancelled_pills)
                 }
             }, status=status.HTTP_201_CREATED)
             

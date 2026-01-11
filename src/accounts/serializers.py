@@ -354,3 +354,41 @@ class UpdateMaxDevicesSerializer(serializers.Serializer):
 class RemoveDeviceSerializer(serializers.Serializer):
     """Serializer for removing a specific device"""
     device_id = serializers.IntegerField()
+
+
+# ============== Deleted User Archive Serializers ==============
+
+class DeletedUserArchiveSerializer(serializers.Serializer):
+    """Serializer for viewing deleted user archives"""
+    id = serializers.IntegerField(read_only=True)
+    original_user_id = serializers.IntegerField(read_only=True)
+    username = serializers.CharField(read_only=True)
+    name = serializers.CharField(read_only=True)
+    email = serializers.EmailField(read_only=True)
+    user_type = serializers.CharField(read_only=True)
+    parent_phone = serializers.CharField(read_only=True)
+    year = serializers.CharField(read_only=True)
+    division = serializers.CharField(read_only=True)
+    government = serializers.CharField(read_only=True)
+    was_banned = serializers.BooleanField(read_only=True)
+    ban_reason = serializers.CharField(read_only=True)
+    original_created_at = serializers.DateTimeField(read_only=True)
+    deleted_at = serializers.DateTimeField(read_only=True)
+    deleted_by = serializers.IntegerField(source='deleted_by.id', read_only=True)
+    deleted_by_username = serializers.CharField(source='deleted_by.username', read_only=True)
+    deleted_by_name = serializers.CharField(source='deleted_by.name', read_only=True)
+    deletion_reason = serializers.CharField(read_only=True)
+    purchased_books_data = serializers.JSONField(read_only=True)
+    purchased_books_count = serializers.SerializerMethodField()
+    
+    def get_purchased_books_count(self, obj):
+        return len(obj.purchased_books_data) if obj.purchased_books_data else 0
+
+
+class RestoreUserSerializer(serializers.Serializer):
+    """Serializer for restoring a deleted user"""
+    archive_id = serializers.IntegerField(help_text="ID of the deleted user archive to restore")
+    restore_books = serializers.BooleanField(
+        default=True,
+        help_text="Whether to restore purchased books along with the user"
+    )
