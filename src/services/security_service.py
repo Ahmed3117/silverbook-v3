@@ -67,7 +67,7 @@ class SecurityService:
                     ip_address=ip_address,
                     user_agent=user_agent,
                     device_id=device_id,
-                    failure_reason=f"Blocked until {active_block.blocked_until}",
+                    failure_reason=f"محظور حتى {active_block.blocked_until}",
                     related_block=active_block
                 )
                 
@@ -297,7 +297,7 @@ class SecurityService:
             block.manually_unblocked = True
             block.unblocked_by = unblocked_by_user
             block.unblocked_at = timezone.now()
-            block.unblock_reason = reason or "Manually unblocked by admin"
+            block.unblock_reason = reason or "تم رفع الحظر يدويًا بواسطة المدير"
             block.save()
             count += 1
             
@@ -359,14 +359,8 @@ class SecurityService:
         )
     
     def _get_block_message_en(self, block):
-        """Get English block message"""
-        operation = "login" if block.block_type == "login" else "password reset"
-        return (
-            f"Attempts to {operation} with this phone number have been temporarily blocked "
-            f"due to exceeding the allowed number of attempts. "
-            f"The block will be automatically lifted after {block.remaining_time_formatted()}. "
-            f"If you did not make these attempts, please contact technical support immediately."
-        )
+        """Get English block message (kept for backward-compat keys, but Arabic per project requirement)"""
+        return self._get_block_message_ar(block)
     from accounts.security_models import AuthenticationAttempt
         
         

@@ -93,7 +93,7 @@ def manual_unblock_view(request):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
     phone_number = serializer.validated_data['phone_number']
-    reason = serializer.validated_data.get('reason', 'Manually unblocked via dashboard')
+    reason = serializer.validated_data.get('reason', 'تم رفع الحظر يدويًا عبر لوحة التحكم')
     
     # Check if there are any active blocks
     active_blocks = SecurityBlock.objects.filter(
@@ -103,7 +103,7 @@ def manual_unblock_view(request):
     
     if not active_blocks.exists():
         return Response({
-            'error': 'No active blocks found for this phone number'
+            'error': 'لا توجد أي عمليات حظر نشطة لهذا الرقم'
         }, status=status.HTTP_404_NOT_FOUND)
     
     # Unblock
@@ -115,7 +115,7 @@ def manual_unblock_view(request):
     
     return Response({
         'success': True,
-        'message': f'Successfully unblocked {count} security block(s)',
+        'message': f'تم رفع الحظر بنجاح عن {count} عملية/عمليات حظر',
         'phone_number': phone_number,
         'unblocked_count': count
     }, status=status.HTTP_200_OK)
@@ -136,15 +136,15 @@ def deactivate_block_view(request, pk):
         block = SecurityBlock.objects.get(pk=pk)
     except SecurityBlock.DoesNotExist:
         return Response({
-            'error': 'Security block not found'
+            'error': 'الحظر الأمني غير موجود'
         }, status=status.HTTP_404_NOT_FOUND)
     
     if not block.is_active:
         return Response({
-            'error': 'Block is already inactive'
+            'error': 'هذا الحظر غير نشط بالفعل'
         }, status=status.HTTP_400_BAD_REQUEST)
     
-    reason = request.data.get('reason', 'Deactivated via dashboard')
+    reason = request.data.get('reason', 'تم إلغاء التفعيل عبر لوحة التحكم')
     
     block.is_active = False
     block.manually_unblocked = True
@@ -155,7 +155,7 @@ def deactivate_block_view(request, pk):
     
     return Response({
         'success': True,
-        'message': 'Security block deactivated successfully',
+        'message': 'تم إلغاء تفعيل الحظر الأمني بنجاح',
         'block': SecurityBlockSerializer(block).data
     }, status=status.HTTP_200_OK)
 

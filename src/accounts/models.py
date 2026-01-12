@@ -349,6 +349,10 @@ class DeletedUserArchive(models.Model):
     
     # Deletion metadata
     deleted_at = models.DateTimeField(auto_now_add=True, help_text="When the user was deleted")
+    is_restored = models.BooleanField(
+        default=False,
+        help_text="Whether this deleted user has been restored"
+    )
     deleted_by = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,

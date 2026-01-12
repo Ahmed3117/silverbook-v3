@@ -129,20 +129,20 @@ class SecurityBlock(models.Model):
         """Get remaining time in human-readable format"""
         seconds = self.remaining_time()
         if seconds == 0:
-            return "Block expired"
+            return "انتهت مدة الحظر"
         
         minutes = seconds // 60
         hours = minutes // 60
         days = hours // 24
         
         if days > 0:
-            return f"{days} day(s) and {hours % 24} hour(s)"
+            return f"{days} يوم و {hours % 24} ساعة"
         elif hours > 0:
-            return f"{hours} hour(s) and {minutes % 60} minute(s)"
+            return f"{hours} ساعة و {minutes % 60} دقيقة"
         elif minutes > 0:
-            return f"{minutes} minute(s)"
+            return f"{minutes} دقيقة"
         else:
-            return f"{seconds} second(s)"
+            return f"{seconds} ثانية"
     
     def auto_deactivate_if_expired(self):
         """Automatically deactivate if block has expired"""

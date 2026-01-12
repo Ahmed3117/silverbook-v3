@@ -374,6 +374,7 @@ class DeletedUserArchiveSerializer(serializers.Serializer):
     ban_reason = serializers.CharField(read_only=True)
     original_created_at = serializers.DateTimeField(read_only=True)
     deleted_at = serializers.DateTimeField(read_only=True)
+    is_restored = serializers.BooleanField(read_only=True)
     deleted_by = serializers.IntegerField(source='deleted_by.id', read_only=True)
     deleted_by_username = serializers.CharField(source='deleted_by.username', read_only=True)
     deleted_by_name = serializers.CharField(source='deleted_by.name', read_only=True)
