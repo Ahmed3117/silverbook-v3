@@ -34,4 +34,14 @@ class DashboardRequestLogListView(generics.ListAPIView):
         if date_to:
             queryset = queryset.filter(requested_at__lte=date_to)
 
+        # Filter by method (GET/POST/PUT/PATCH/DELETE)
+        method = self.request.query_params.get('method')
+        if method:
+            queryset = queryset.filter(method__iexact=method.strip())
+
+        # Filter by response_status (e.g., 200, 201, 400)
+        response_status = self.request.query_params.get('response_status')
+        if response_status and response_status.isdigit():
+            queryset = queryset.filter(response_status=int(response_status))
+
         return queryset.order_by('-requested_at')
