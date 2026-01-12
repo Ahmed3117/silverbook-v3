@@ -342,7 +342,7 @@ def signin(request):
             ip_address=ip_address,
             user_agent=user_agent,
             device_id=device_id,
-            failure_reason='Blocked due to too many failed attempts'
+            failure_reason='تم الحظر بسبب كثرة المحاولات الفاشلة'
         )
         
         return Response({
@@ -366,7 +366,7 @@ def signin(request):
             ip_address=ip_address,
             user_agent=user_agent,
             device_id=device_id,
-            failure_reason='Invalid credentials'
+            failure_reason='بيانات الدخول غير صحيحة'
         )
         
         if not attempt_result['allowed']:
@@ -382,10 +382,13 @@ def signin(request):
             }, status=status.HTTP_403_FORBIDDEN)
         
         # Not blocked yet - return error with remaining attempts
-        response_data = {'error': 'بيانات الدخول غير صحيحة، من فضلك تحقق.'}
+        base_error = 'بيانات الدخول غير صحيحة. يرجى التأكد من رقم الهاتف وكلمة المرور.'
+        response_data = {'error': base_error}
         if 'remaining_attempts' in attempt_result:
             response_data['remaining_attempts'] = attempt_result['remaining_attempts']
-            response_data['warning'] = f"لديك {attempt_result['remaining_attempts']} محاولة متبقية قبل حظر الحساب مؤقتاً"
+            warning_text = f"تنبيه: لديك {attempt_result['remaining_attempts']} محاولة متبقية قبل حظر الحساب مؤقتًا."
+            response_data['warning'] = warning_text
+            response_data['error'] = f"{base_error} {warning_text}"
         
         return Response(response_data, status=status.HTTP_400_BAD_REQUEST)
     
@@ -567,7 +570,7 @@ def request_password_reset(request):
                     ip_address=ip_address,
                     user_agent=user_agent,
                     device_id=device_id,
-                    failure_reason='User not found'
+                    failure_reason='المستخدم غير موجود'
                 )
                 
                 if not attempt_result['allowed']:
@@ -615,7 +618,7 @@ def request_password_reset(request):
                     ip_address=ip_address,
                     user_agent=user_agent,
                     device_id=device_id,
-                    failure_reason=f"OTP send failed: {otp_result.get('error', 'Unknown')}"
+                    failure_reason=f"فشل إرسال رمز التحقق: {otp_result.get('error', 'غير معروف')}"
                 )
                 
                 logger.error(f"Password reset OTP failed for {username}: {otp_result}")
@@ -631,8 +634,9 @@ def request_password_reset(request):
                         'block_level': block_info['block_level']
                     }, status=status.HTTP_403_FORBIDDEN)
                 
+                base_error = otp_result.get('error', 'فشل إرسال رمز التحقق')
                 response_data = {
-                    'error': otp_result.get('error', 'فشل إرسال رمز التحقق'),
+                    'error': base_error,
                     'details': otp_result.get('details'),
                     'wait_time': otp_result.get('wait_time'),
                     'max_attempts_reached': otp_result.get('max_attempts_reached', False)
@@ -640,7 +644,9 @@ def request_password_reset(request):
                 
                 if 'remaining_attempts' in attempt_result:
                     response_data['remaining_attempts'] = attempt_result['remaining_attempts']
-                    response_data['warning'] = f"لديك {attempt_result['remaining_attempts']} محاولة متبقية قبل حظر الحساب مؤقتاً"
+                    warning_text = f"تنبيه: لديك {attempt_result['remaining_attempts']} محاولة متبقية قبل حظر الحساب مؤقتًا."
+                    response_data['warning'] = warning_text
+                    response_data['error'] = f"{base_error} {warning_text}"
                 
                 return Response(response_data, status=status.HTTP_400_BAD_REQUEST)
                 
@@ -678,11 +684,20 @@ def reset_password_confirm(request):
             )
             
             if not verification_result['success']:
-                return Response({
-                    'error': verification_result['error'],
+                base_error = verification_result['error']
+                response_data = {
+                    'error': base_error,
                     'error_code': verification_result.get('error_code'),
                     'remaining_attempts': verification_result.get('remaining_attempts')
-                }, status=status.HTTP_400_BAD_REQUEST)
+                }
+
+                remaining_attempts = verification_result.get('remaining_attempts')
+                if remaining_attempts is not None:
+                    warning_text = f"تنبيه: لديك {remaining_attempts} محاولة متبقية لإدخال رمز التحقق بشكل صحيح."
+                    response_data['warning'] = warning_text
+                    response_data['error'] = f"{base_error} {warning_text}"
+
+                return Response(response_data, status=status.HTTP_400_BAD_REQUEST)
             
             # OTP verified, reset password
             user.set_password(new_password)
@@ -748,7 +763,7 @@ def resend_password_reset_otp(request):
             ip_address=ip_address,
             user_agent=user_agent,
             device_id=device_id,
-            failure_reason='User not found'
+            failure_reason='المستخدم غير موجود'
         )
         
         if not attempt_result['allowed']:
@@ -796,7 +811,7 @@ def resend_password_reset_otp(request):
             ip_address=ip_address,
             user_agent=user_agent,
             device_id=device_id,
-            failure_reason=f"OTP resend failed: {otp_result.get('error', 'Unknown')}"
+            failure_reason=f"فشل إعادة إرسال رمز التحقق: {otp_result.get('error', 'غير معروف')}"
         )
         
         if not attempt_result['allowed']:
@@ -810,15 +825,18 @@ def resend_password_reset_otp(request):
                 'block_level': block_info['block_level']
             }, status=status.HTTP_403_FORBIDDEN)
         
+        base_error = otp_result.get('error', 'فشل إرسال رمز التحقق')
         response_data = {
-            'error': otp_result.get('error', 'فشل إرسال رمز التحقق'),
+            'error': base_error,
             'wait_time': otp_result.get('wait_time'),
             'max_attempts_reached': otp_result.get('max_attempts_reached', False)
         }
         
         if 'remaining_attempts' in attempt_result:
             response_data['remaining_attempts'] = attempt_result['remaining_attempts']
-            response_data['warning'] = f"لديك {attempt_result['remaining_attempts']} محاولة متبقية قبل حظر الحساب مؤقتاً"
+            warning_text = f"تنبيه: لديك {attempt_result['remaining_attempts']} محاولة متبقية قبل حظر الحساب مؤقتًا."
+            response_data['warning'] = warning_text
+            response_data['error'] = f"{base_error} {warning_text}"
         
         return Response(response_data, status=status.HTTP_400_BAD_REQUEST)
 
@@ -1557,6 +1575,10 @@ class RestoreUserView(APIView):
                         continue
                 
                 logger.info(f"✅ [USER_RESTORE] Restored {restored_books_count} book(s) for user {restored_user.username}")
+
+            # Mark archive as restored
+            archive.is_restored = True
+            archive.save(update_fields=['is_restored'])
         
         return Response({
             'success': True,

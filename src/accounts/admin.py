@@ -158,9 +158,9 @@ class SecurityBlockAdmin(admin.ModelAdmin):
     @admin.display(description='Remaining Time')
     def remaining_time_display(self, obj):
         if not obj.is_active:
-            return "Inactive"
+            return "غير نشط"
         if obj.is_expired():
-            return format_html('<span style="color: green;">Expired</span>')
+            return format_html('<span style="color: green;">منتهي</span>')
         return obj.remaining_time_formatted()
     
     @admin.display(description='Is Expired?', boolean=True)
@@ -176,13 +176,13 @@ class SecurityBlockAdmin(admin.ModelAdmin):
             block.manually_unblocked = True
             block.unblocked_by = request.user
             block.unblocked_at = timezone.now()
-            block.unblock_reason = f"Manually unblocked by {request.user.username} via admin panel"
+            block.unblock_reason = f"تم رفع الحظر يدويًا بواسطة {request.user.username} عبر لوحة الإدارة"
             block.save()
             count += 1
         
         self.message_user(
             request,
-            f"Successfully unblocked {count} phone number(s).",
+            f"تم رفع الحظر بنجاح عن {count} رقم/أرقام.",
             messages.SUCCESS
         )
     
@@ -192,7 +192,7 @@ class SecurityBlockAdmin(admin.ModelAdmin):
         updated = queryset.update(is_active=False)
         self.message_user(
             request,
-            f"Deactivated {updated} block(s).",
+            f"تم إلغاء تفعيل {updated} عملية/عمليات حظر.",
             messages.SUCCESS
         )
     
