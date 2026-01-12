@@ -382,13 +382,13 @@ def signin(request):
             }, status=status.HTTP_403_FORBIDDEN)
         
         # Not blocked yet - return error with remaining attempts
-        base_error = 'بيانات الدخول غير صحيحة. يرجى التأكد من رقم الهاتف وكلمة المرور.'
+        base_error = 'بيانات الدخول غير صحيحة.'
         response_data = {'error': base_error}
         if 'remaining_attempts' in attempt_result:
             response_data['remaining_attempts'] = attempt_result['remaining_attempts']
-            warning_text = f"تنبيه: لديك {attempt_result['remaining_attempts']} محاولة متبقية قبل حظر الحساب مؤقتًا."
+            warning_text = f"بيانات الدخول غير صحيحة. لديك عدد ({attempt_result['remaining_attempts']}) محاولات متبقية"
             response_data['warning'] = warning_text
-            response_data['error'] = f"{base_error} {warning_text}"
+            response_data['error'] = warning_text
         
         return Response(response_data, status=status.HTTP_400_BAD_REQUEST)
     

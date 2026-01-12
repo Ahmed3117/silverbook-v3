@@ -94,6 +94,10 @@ def _should_log_request(request: HttpRequest) -> bool:
     if '/dashboard/' not in path:
         return False
 
+    # Skip GET requests (too noisy for dashboards)
+    if request.method == 'GET':
+        return False
+
     # Avoid logging the logs endpoint itself
     if path.startswith('/dashboard/logs'):
         return False
