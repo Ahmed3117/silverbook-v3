@@ -95,7 +95,8 @@ def _should_log_request(request: HttpRequest) -> bool:
         return False
 
     # Skip safe/preflight requests (too noisy for dashboards)
-    if request.method in {'GET', 'OPTIONS'}:
+    method = (request.method or '').upper()
+    if method in {'GET', 'OPTIONS', 'HEAD'}:
         return False
 
     # Avoid logging the logs endpoint itself
