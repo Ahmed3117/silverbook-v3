@@ -17,6 +17,11 @@ class DashboardRequestLogListView(generics.ListAPIView):
     def get_queryset(self):
         queryset = super().get_queryset()
 
+        # By default, hide very noisy methods even if old rows exist.
+        # If caller explicitly filters by `method`, we respect that filter.
+        if not self.request.query_params.get('method'):
+            queryset = queryset.exclude(method__in=['GET', 'OPTIONS', 'HEAD'])
+
         # Filter by user: accepts user id or username
         user_param = self.request.query_params.get('user')
         if user_param:
