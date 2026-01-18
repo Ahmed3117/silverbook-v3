@@ -611,7 +611,7 @@ class PurchasedBook(models.Model):
     pill = models.ForeignKey(Pill, on_delete=models.CASCADE, related_name='purchased_books', null=True, blank=True)
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='purchased_books')
     pill_item = models.ForeignKey(PillItem, on_delete=models.SET_NULL, null=True, blank=True, related_name='purchased_books')
-    book_token = models.CharField(max_length=64, unique=True, editable=False, db_index=True)
+    book_token = models.CharField(max_length=64, null=True, blank=True, editable=False, db_index=True)
     product_name = models.CharField(max_length=255, blank=True)
     price_at_sale = models.FloatField(null=True, blank=True, help_text="Price at the time of purchase/assignment")
     created_at = models.DateTimeField(auto_now_add=True)
