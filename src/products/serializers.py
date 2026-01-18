@@ -331,6 +331,7 @@ class AdminProductSerializer(ProductSerializer):
     """Admin version of ProductSerializer that includes pdf_file field"""
     # Override file fields - accept strings on write, return full URLs on read
     pdf_file = serializers.CharField(max_length=500, required=False, allow_blank=True, allow_null=True)
+    book_token = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
@@ -339,7 +340,7 @@ class AdminProductSerializer(ProductSerializer):
             'subject_id' ,'subject_name', 'teacher_id','teacher_name','teacher_image', 
             'price', 'description', 'date_added', 'discounted_price',
             'has_discount', 'current_discount', 'discount_expiry',
-            'base_image', 'is_available', 'related_products', 'pdf_file'
+            'base_image', 'is_available', 'related_products', 'pdf_file', 'book_token'
         ]
         read_only_fields = [
             'product_number', 'date_added'
@@ -374,6 +375,20 @@ class AdminProductSerializer(ProductSerializer):
                 })
             return related_items
         return []
+
+    def get_book_token(self, obj):
+        """Return the PurchasedBook token for the requesting user (if any)."""
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if not user or not getattr(user, 'is_authenticated', False):
+            return None
+
+        purchased = (
+            PurchasedBook.objects.filter(user=user, product=obj)
+            .values_list('book_token', flat=True)
+            .first()
+        )
+        return purchased
 
     def to_representation(self, instance):
         """Override to return full URLs for file fields including pdf_file"""
@@ -1431,6 +1446,7 @@ class AdminLovedProductSerializer(serializers.ModelSerializer):
 class PurchasedBookSerializer(serializers.ModelSerializer):
     # Read fields
     id = serializers.IntegerField(read_only=True)
+    book_token = serializers.CharField(read_only=True)
     product_id = serializers.IntegerField(source='product.id', read_only=True)
     name = serializers.CharField(source='product.name', read_only=True)
     pill_id = serializers.IntegerField(source='pill.id', read_only=True, allow_null=True)
@@ -1458,14 +1474,14 @@ class PurchasedBookSerializer(serializers.ModelSerializer):
     class Meta:
         model = PurchasedBook
         fields = [
-            'id', 'user',
+            'id', 'book_token', 'user',
             'product', 'product_id', 'product_number','name',
             'pill', 'pill_id', 'pill_number',
             'pill_item', 'product_name', 'created_at',
             'student_name', 'student_phone', 'type', 'year', 'subject_id', 'subject_name',
             'teacher_id', 'teacher_name', 'base_image', 'pdf_file', 'related_products'
         ]
-        read_only_fields = ['id', 'created_at', 'product_id', 'pill_id', 'pill_number']
+        read_only_fields = ['id', 'book_token', 'created_at', 'product_id', 'pill_id', 'pill_number']
 
     def _product(self, obj):
         return getattr(obj, 'product', None)

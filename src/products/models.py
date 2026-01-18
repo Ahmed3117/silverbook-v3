@@ -1,5 +1,6 @@
 import random
 import string
+import uuid
 from django.db import models
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator, MaxValueValidator
@@ -610,6 +611,7 @@ class PurchasedBook(models.Model):
     pill = models.ForeignKey(Pill, on_delete=models.CASCADE, related_name='purchased_books', null=True, blank=True)
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='purchased_books')
     pill_item = models.ForeignKey(PillItem, on_delete=models.SET_NULL, null=True, blank=True, related_name='purchased_books')
+    book_token = models.CharField(max_length=64, unique=True, editable=False, db_index=True)
     product_name = models.CharField(max_length=255, blank=True)
     price_at_sale = models.FloatField(null=True, blank=True, help_text="Price at the time of purchase/assignment")
     created_at = models.DateTimeField(auto_now_add=True)
@@ -617,7 +619,23 @@ class PurchasedBook(models.Model):
     class Meta:
         ordering = ['-created_at']
 
+    @staticmethod
+    def generate_unique_book_token():
+        """Generate a unique token for this purchased book (64 hex chars)."""
+        while True:
+            token = uuid.uuid4().hex + uuid.uuid4().hex
+            if not PurchasedBook.objects.filter(book_token=token).exists():
+                return token
+
     def save(self, *args, **kwargs):
+        # Always (re)generate token on create and update.
+        self.book_token = self.generate_unique_book_token()
+
+        update_fields = kwargs.get('update_fields')
+        if update_fields is not None:
+            # Force persistence of regenerated token even when callers restrict update_fields.
+            kwargs['update_fields'] = set(update_fields) | {'book_token'}
+
         # Auto-fill product_name from product if not provided
         if not self.product_name and self.product:
             self.product_name = self.product.name
