@@ -96,10 +96,11 @@ class AnalysisProductPurchaserSerializer(serializers.Serializer):
 
 class AnalysisPurchaserUserSerializer(serializers.ModelSerializer):
     year_displayed = serializers.SerializerMethodField()
+    purchase_method = serializers.CharField(allow_null=True, read_only=True)
 
     class Meta:
         model = User
-        fields = ['name', 'username', 'year_displayed']
+        fields = ['name', 'username', 'year_displayed', 'purchase_method']
 
     def get_year_displayed(self, obj):
         try:
