@@ -1,7 +1,7 @@
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated,IsAdminUser
 from rest_framework.response import Response
-from django.db.models import Count, Sum, Q, F, IntegerField
+from django.db.models import Count, Sum, Q, F, IntegerField, OuterRef, Subquery, Case, When, Value, CharField
 from django.db.models.functions import Coalesce
 from products.models import PurchasedBook, Product, Pill
 from accounts.models import YEAR_CHOICES
@@ -225,6 +225,7 @@ class ProductPurchasersListView(generics.ListAPIView):
             pb_filter &= Q(purchased_books__created_at__date__gte=from_date)
         if to_date:
             pb_filter &= Q(purchased_books__created_at__date__lte=to_date)
+
         # By default, align with /analysis/products/ counters:
         # include only paid/free purchases (pill.status='p') and manual assignments (pill is null).
         if paid_only:
@@ -232,9 +233,44 @@ class ProductPurchasersListView(generics.ListAPIView):
         else:
             pb_filter &= (Q(purchased_books__pill__status='p') | Q(purchased_books__pill__isnull=True))
 
+        # Derive *how* the user got the product from the latest qualifying PurchasedBook.
+        purchased_books_latest = PurchasedBook.objects.filter(user_id=OuterRef('pk'), product_id=product_id)
+        if from_date:
+            purchased_books_latest = purchased_books_latest.filter(created_at__date__gte=from_date)
+        if to_date:
+            purchased_books_latest = purchased_books_latest.filter(created_at__date__lte=to_date)
+
+        if paid_only:
+            purchased_books_latest = purchased_books_latest.filter(pill__status='p')
+        else:
+            purchased_books_latest = purchased_books_latest.filter(Q(pill__status='p') | Q(pill__isnull=True))
+
+        purchased_books_latest = (
+            purchased_books_latest.annotate(
+                purchase_method=Case(
+                    When(pill__isnull=True, then=Value('تعيين يدوي')),
+                    When(
+                        Q(pill__status='p')
+                        & (Q(price_at_sale__lte=0) | Q(price_at_sale__isnull=True)),
+                        then=Value('مجاني'),
+                    ),
+                    When(
+                        Q(pill__status='p')
+                        & Q(price_at_sale__gt=0),
+                        then=Value('مدفوع'),
+                    ),
+                    default=Value('غير محدد'),
+                    output_field=CharField(),
+                )
+            )
+            .order_by('-created_at', '-id')
+            .values('purchase_method')
+        )
+
         return (
             User.objects.filter(pb_filter)
             .only('id', 'name', 'username', 'year')
+            .annotate(purchase_method=Subquery(purchased_books_latest[:1]))
             .distinct()
             .order_by('username')
         )
