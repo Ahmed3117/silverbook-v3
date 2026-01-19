@@ -331,7 +331,7 @@ class AdminProductSerializer(ProductSerializer):
     """Admin version of ProductSerializer that includes pdf_file field"""
     # Override file fields - accept strings on write, return full URLs on read
     pdf_file = serializers.CharField(max_length=500, required=False, allow_blank=True, allow_null=True)
-    book_token = serializers.SerializerMethodField()
+    book_token = serializers.CharField(read_only=True)
 
     class Meta:
         model = Product
@@ -359,6 +359,7 @@ class AdminProductSerializer(ProductSerializer):
                     'id': pp.id,
                     'created_at': pp.created_at,
                     'product_id': related.id,
+                    'book_token': related.book_token,
                     'product_number': related.product_number,
                     'name': related.name,
                     'type': related.type,
@@ -375,20 +376,6 @@ class AdminProductSerializer(ProductSerializer):
                 })
             return related_items
         return []
-
-    def get_book_token(self, obj):
-        """Return the PurchasedBook token for the requesting user (if any)."""
-        request = self.context.get('request')
-        user = getattr(request, 'user', None)
-        if not user or not getattr(user, 'is_authenticated', False):
-            return None
-
-        purchased = (
-            PurchasedBook.objects.filter(user=user, product=obj)
-            .values_list('book_token', flat=True)
-            .first()
-        )
-        return purchased
 
     def to_representation(self, instance):
         """Override to return full URLs for file fields including pdf_file"""
@@ -1446,7 +1433,7 @@ class AdminLovedProductSerializer(serializers.ModelSerializer):
 class PurchasedBookSerializer(serializers.ModelSerializer):
     # Read fields
     id = serializers.IntegerField(read_only=True)
-    book_token = serializers.CharField(read_only=True)
+    book_token = serializers.CharField(source='product.book_token', read_only=True)
     product_id = serializers.IntegerField(source='product.id', read_only=True)
     name = serializers.CharField(source='product.name', read_only=True)
     pill_id = serializers.IntegerField(source='pill.id', read_only=True, allow_null=True)
@@ -1559,6 +1546,7 @@ class PurchasedBookSerializer(serializers.ModelSerializer):
                 'id': pp.id,
                 'created_at': pp.created_at,
                 'product_id': related.id,
+                'book_token': related.book_token,
                 'product_number': related.product_number,
                 'name': related.name,
                 'type': related.type,

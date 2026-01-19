@@ -1,10 +1,243 @@
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated,IsAdminUser
 from rest_framework.response import Response
-from django.db.models import Count, Sum, Q
+from django.db.models import Count, Sum, Q, F, IntegerField
+from django.db.models.functions import Coalesce
 from products.models import PurchasedBook, Product, Pill
 from accounts.models import YEAR_CHOICES
 from .serializers import SalesAnalyticsSerializer, BestSellerProductSerializer
+from rest_framework import generics
+from accounts.pagination import CustomPageNumberPagination
+from accounts.models import User
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework import filters as rest_filters
+
+
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
+def products_analytics_list(request):
+    """List all products in the same response shape as dashboard purchased-books, plus paid_times.
+
+    Filters (query params):
+    - year
+    - teacher (teacher id)
+    - subject (subject id)
+    - type (book/package)
+    - from_date (YYYY-MM-DD) -> affects paid_times calculation and optional filtering
+    - to_date (YYYY-MM-DD)
+
+    Search (query param `search`): book_token, product_number, name
+    """
+
+    qs = Product.objects.all().select_related('subject', 'teacher')
+
+    year = request.query_params.get('year')
+    teacher = request.query_params.get('teacher') or request.query_params.get('teacher_id')
+    subject = request.query_params.get('subject') or request.query_params.get('subject_id')
+    product_type = request.query_params.get('type')
+    from_date = request.query_params.get('from_date') or request.query_params.get('date_from')
+    to_date = request.query_params.get('to_date') or request.query_params.get('date_to')
+    search = (request.query_params.get('search') or '').strip()
+
+    if year:
+        qs = qs.filter(year=year)
+    if teacher:
+        qs = qs.filter(teacher_id=teacher)
+    if subject:
+        qs = qs.filter(subject_id=subject)
+    if product_type:
+        qs = qs.filter(type=product_type)
+
+    if search:
+        qs = qs.filter(
+            Q(book_token__icontains=search)
+            | Q(product_number__icontains=search)
+            | Q(name__icontains=search)
+        )
+
+    date_q = Q()
+    if from_date:
+        date_q &= Q(purchased_books__created_at__date__gte=from_date)
+    if to_date:
+        date_q &= Q(purchased_books__created_at__date__lte=to_date)
+
+    paid_q = date_q & Q(purchased_books__pill__status='p') & Q(purchased_books__price_at_sale__gt=0)
+    free_q = date_q & Q(purchased_books__pill__status='p') & Q(purchased_books__price_at_sale__lte=0)
+    manual_q = date_q & Q(purchased_books__pill__isnull=True)
+
+    qs = qs.annotate(
+        paid_times=Count('purchased_books', filter=paid_q, distinct=True),
+        free_paid_times=Count('purchased_books', filter=free_q, distinct=True),
+        manual_assigned_times=Count('purchased_books', filter=manual_q, distinct=True),
+    ).annotate(
+        total_paid_times=(
+            Coalesce(F('paid_times'), 0)
+            + Coalesce(F('free_paid_times'), 0)
+            + Coalesce(F('manual_assigned_times'), 0)
+        )
+    )
+
+    # Prefetch package relationships to avoid N+1 when building related_products
+    from django.db.models import Prefetch
+    from products.models import PackageProduct
+
+    qs = qs.prefetch_related(
+        Prefetch(
+            'package_products',
+            queryset=PackageProduct.objects.select_related(
+                'related_product',
+                'related_product__subject',
+                'related_product__teacher',
+            ).order_by('-created_at'),
+        )
+    )
+
+    # Simple ordering
+    ordering = request.query_params.get('ordering') or '-total_paid_times'
+
+    # Aliases for convenience
+    if ordering in {'product_name', '-product_name'}:
+        ordering = ordering.replace('product_name', 'name')
+    allowed_ordering = {
+        'paid_times',
+        '-paid_times',
+        'free_paid_times',
+        '-free_paid_times',
+        'manual_assigned_times',
+        '-manual_assigned_times',
+        'total_paid_times',
+        '-total_paid_times',
+        'date_added',
+        '-date_added',
+        'name',
+        '-name',
+    }
+    if ordering not in allowed_ordering:
+        ordering = '-total_paid_times'
+    qs = qs.order_by(ordering)
+
+    # Pagination (lightweight, page/page_size)
+    try:
+        page = int(request.query_params.get('page', 1))
+    except ValueError:
+        page = 1
+    try:
+        page_size = int(request.query_params.get('page_size', 20))
+    except ValueError:
+        page_size = 20
+    page = max(page, 1)
+    page_size = min(max(page_size, 1), 200)
+
+    total = qs.count()
+    start = (page - 1) * page_size
+    end = start + page_size
+    items = list(qs[start:end])
+
+    # Build response rows in PurchasedBook-like shape.
+    from .serializers import AnalysisProductListSerializer, _get_full_file_url
+
+    request_obj = request
+    results = []
+    for product in items:
+        related_products = []
+        if getattr(product, 'type', None) == 'package':
+            for pp in getattr(product, 'package_products', []).all():
+                related = pp.related_product
+                related_products.append(
+                    {
+                        'id': pp.id,
+                        'created_at': pp.created_at,
+                        'product_id': related.id,
+                        'book_token': related.book_token,
+                        'product_number': related.product_number,
+                        'name': related.name,
+                        'type': related.type,
+                        'subject_id': related.subject_id,
+                        'subject_name': related.subject.name if related.subject else None,
+                        'teacher_id': related.teacher_id,
+                        'teacher_name': related.teacher.name if related.teacher else None,
+                        'description': related.description,
+                        'base_image': _get_full_file_url(related.base_image, request_obj) if related.base_image else None,
+                        'pdf_file': _get_full_file_url(related.pdf_file, request_obj) if related.pdf_file else None,
+                        'year': related.year,
+                        'is_available': related.is_available,
+                        'date_added': related.date_added,
+                    }
+                )
+
+        results.append(
+            {
+                'id': product.id,
+                'book_token': product.book_token,
+                'product_number': product.product_number,
+                'name': product.name,
+                'pill_id': None,
+                'pill_number': None,
+                'product_name': product.name,
+                'created_at': product.date_added,
+                'student_name': None,
+                'student_phone': None,
+                'type': product.type,
+                'year': product.year,
+                'subject_id': product.subject_id,
+                'subject_name': product.subject.name if product.subject else None,
+                'teacher_id': product.teacher_id,
+                'teacher_name': product.teacher.name if product.teacher else None,
+                'base_image': _get_full_file_url(product.base_image, request_obj) if product.base_image else None,
+                'pdf_file': _get_full_file_url(product.pdf_file, request_obj) if product.pdf_file else None,
+                'related_products': related_products,
+                'paid_times': int(getattr(product, 'paid_times', 0) or 0),
+                'free_paid_times': int(getattr(product, 'free_paid_times', 0) or 0),
+                'manual_assigned_times': int(getattr(product, 'manual_assigned_times', 0) or 0),
+                'total_paid_times': int(getattr(product, 'total_paid_times', 0) or 0),
+            }
+        )
+
+    payload = {
+        'count': total,
+        'next': None,
+        'previous': None,
+        'results': AnalysisProductListSerializer(results, many=True).data,
+    }
+    return Response(payload)
+
+
+class ProductPurchasersListView(generics.ListAPIView):
+    permission_classes = [IsAdminUser]
+    pagination_class = CustomPageNumberPagination
+    filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter]
+    filterset_fields = ['year']
+    search_fields = ['name', 'username']
+
+    def get_serializer_class(self):
+        from .serializers import AnalysisPurchaserUserSerializer
+        return AnalysisPurchaserUserSerializer
+
+    def get_queryset(self):
+        product_id = self.kwargs.get('product_id')
+
+        from_date = self.request.query_params.get('from_date') or self.request.query_params.get('date_from')
+        to_date = self.request.query_params.get('to_date') or self.request.query_params.get('date_to')
+        paid_only = (self.request.query_params.get('paid_only') or 'false').lower() == 'true'
+
+        pb_filter = Q(purchased_books__product_id=product_id)
+        if from_date:
+            pb_filter &= Q(purchased_books__created_at__date__gte=from_date)
+        if to_date:
+            pb_filter &= Q(purchased_books__created_at__date__lte=to_date)
+        # By default, align with /analysis/products/ counters:
+        # include only paid/free purchases (pill.status='p') and manual assignments (pill is null).
+        if paid_only:
+            pb_filter &= Q(purchased_books__pill__status='p')
+        else:
+            pb_filter &= (Q(purchased_books__pill__status='p') | Q(purchased_books__pill__isnull=True))
+
+        return (
+            User.objects.filter(pb_filter)
+            .only('id', 'name', 'username', 'year')
+            .distinct()
+            .order_by('username')
+        )
 
 
 @api_view(['GET'])

@@ -48,3 +48,14 @@ media/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local Django settings overrides (keep core/settings.py committed)
+core/local_settings.py
+core/settings_local.py
+core/settings.dev.py
+core/settings.prod.py
+
+accounts/management/
+accounts/tests_security.py
+docs/
+*.json
