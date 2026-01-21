@@ -3,6 +3,7 @@ from rest_framework.permissions import IsAuthenticated,IsAdminUser
 from rest_framework.response import Response
 from django.db.models import Count, Sum, Q, F, IntegerField, OuterRef, Subquery, Case, When, Value, CharField
 from django.db.models.functions import Coalesce
+from urllib.parse import urlencode, urlsplit, urlunsplit, parse_qs
 from products.models import PurchasedBook, Product, Pill
 from accounts.models import YEAR_CHOICES
 from .serializers import SalesAnalyticsSerializer, BestSellerProductSerializer
@@ -77,21 +78,6 @@ def products_analytics_list(request):
         )
     )
 
-    # Prefetch package relationships to avoid N+1 when building related_products
-    from django.db.models import Prefetch
-    from products.models import PackageProduct
-
-    qs = qs.prefetch_related(
-        Prefetch(
-            'package_products',
-            queryset=PackageProduct.objects.select_related(
-                'related_product',
-                'related_product__subject',
-                'related_product__teacher',
-            ).order_by('-created_at'),
-        )
-    )
-
     # Simple ordering
     ordering = request.query_params.get('ordering') or '-total_paid_times'
 
@@ -121,9 +107,12 @@ def products_analytics_list(request):
         page = int(request.query_params.get('page', 1))
     except ValueError:
         page = 1
+
+    # Accept `per_page` as an alias of `page_size` for consistency with other endpoints.
+    raw_page_size = request.query_params.get('per_page') or request.query_params.get('page_size') or 20
     try:
-        page_size = int(request.query_params.get('page_size', 20))
-    except ValueError:
+        page_size = int(raw_page_size)
+    except (TypeError, ValueError):
         page_size = 20
     page = max(page, 1)
     page_size = min(max(page_size, 1), 200)
@@ -133,46 +122,35 @@ def products_analytics_list(request):
     end = start + page_size
     items = list(qs[start:end])
 
+    def _build_page_url(target_page: int):
+        parts = urlsplit(request.build_absolute_uri())
+        query = parse_qs(parts.query)
+        query['page'] = [str(target_page)]
+        # Preserve caller's page size param style.
+        if 'per_page' in query or 'page_size' not in query:
+            query['per_page'] = [str(page_size)]
+            query.pop('page_size', None)
+        else:
+            query['page_size'] = [str(page_size)]
+            query.pop('per_page', None)
+        new_query = urlencode(query, doseq=True)
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, new_query, parts.fragment))
+
+    next_url = _build_page_url(page + 1) if end < total else None
+    previous_url = _build_page_url(page - 1) if page > 1 else None
+
     # Build response rows in PurchasedBook-like shape.
     from .serializers import AnalysisProductListSerializer, _get_full_file_url
 
     request_obj = request
     results = []
     for product in items:
-        related_products = []
-        if getattr(product, 'type', None) == 'package':
-            for pp in getattr(product, 'package_products', []).all():
-                related = pp.related_product
-                related_products.append(
-                    {
-                        'id': pp.id,
-                        'created_at': pp.created_at,
-                        'product_id': related.id,
-                        'book_token': related.book_token,
-                        'product_number': related.product_number,
-                        'name': related.name,
-                        'type': related.type,
-                        'subject_id': related.subject_id,
-                        'subject_name': related.subject.name if related.subject else None,
-                        'teacher_id': related.teacher_id,
-                        'teacher_name': related.teacher.name if related.teacher else None,
-                        'description': related.description,
-                        'base_image': _get_full_file_url(related.base_image, request_obj) if related.base_image else None,
-                        'pdf_file': _get_full_file_url(related.pdf_file, request_obj) if related.pdf_file else None,
-                        'year': related.year,
-                        'is_available': related.is_available,
-                        'date_added': related.date_added,
-                    }
-                )
-
         results.append(
             {
                 'id': product.id,
                 'book_token': product.book_token,
                 'product_number': product.product_number,
                 'name': product.name,
-                'pill_id': None,
-                'pill_number': None,
                 'product_name': product.name,
                 'created_at': product.date_added,
                 'student_name': None,
@@ -185,7 +163,6 @@ def products_analytics_list(request):
                 'teacher_name': product.teacher.name if product.teacher else None,
                 'base_image': _get_full_file_url(product.base_image, request_obj) if product.base_image else None,
                 'pdf_file': _get_full_file_url(product.pdf_file, request_obj) if product.pdf_file else None,
-                'related_products': related_products,
                 'paid_times': int(getattr(product, 'paid_times', 0) or 0),
                 'free_paid_times': int(getattr(product, 'free_paid_times', 0) or 0),
                 'manual_assigned_times': int(getattr(product, 'manual_assigned_times', 0) or 0),
@@ -195,8 +172,8 @@ def products_analytics_list(request):
 
     payload = {
         'count': total,
-        'next': None,
-        'previous': None,
+        'next': next_url,
+        'previous': previous_url,
         'results': AnalysisProductListSerializer(results, many=True).data,
     }
     return Response(payload)
