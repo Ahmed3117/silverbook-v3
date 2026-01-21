@@ -555,7 +555,7 @@ class AddFreeBookView(APIView):
                 price_at_sale=float(effective_price or 0)
             )
             pill.items.add(pill_item)
-            pill.grant_purchased_books()
+            pill.grant_purchased_books(purchase_method='free')
 
         purchased_book = PurchasedBook.objects.get(user=request.user, product=product)
         serializer = PurchasedBookSerializer(purchased_book, context={'request': request})
@@ -1525,7 +1525,8 @@ class AddBooksToStudentView(APIView):
                         pill=pill,
                         product=product,
                         pill_item=pill_item,
-                        product_name=product.name
+                        product_name=product.name,
+                        purchase_method='admin_added',
                     )
                     
                     added_books.append({
@@ -1699,7 +1700,8 @@ class AdminPurchasedBookListCreateView(generics.ListCreateAPIView):
                         user=user,
                         product=product,
                         pill=pill,
-                        pill_item=pill_item
+                        pill_item=pill_item,
+                        purchase_method='admin_added',
                     )
                     
                     created_books.append(
