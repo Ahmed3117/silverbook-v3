@@ -984,7 +984,7 @@ class ProductSimpleListView(generics.ListAPIView):
     queryset = Product.objects.all()
     serializer_class = SimpleProductSerializer
     filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter]
-    filterset_fields = ['is_available', 'type', 'teacher', 'subject']
+    filterset_fields = ['is_available', 'type', 'teacher', 'subject','year']
     search_fields = ['name']
     permission_classes = [IsAdminUser]
     pagination_class = None  # Disable pagination for direct list response
