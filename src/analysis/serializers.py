@@ -93,7 +93,7 @@ class AnalysisProductPurchaserSerializer(serializers.Serializer):
 
 class AnalysisPurchaserUserSerializer(serializers.ModelSerializer):
     year_displayed = serializers.SerializerMethodField()
-    purchase_method = serializers.CharField(allow_null=True, read_only=True)
+    purchase_method = serializers.CharField(source='purchase_method_label', allow_null=True, read_only=True)
 
     class Meta:
         model = User

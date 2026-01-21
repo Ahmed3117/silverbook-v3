@@ -61,6 +61,12 @@ PRODUCT_TYPE_CHOICES = [
     ('package', 'Package'),
 ]
 
+PURCHASE_METHOD_CHOICES = [
+    ('user_paid', 'مدفوع'),
+    ('free', 'مجاني'),
+    ('admin_added', 'تعيين يدوي'),
+]
+
 def generate_pill_number():
     """Generate a unique 20-digit pill number."""
     while True:
@@ -464,7 +470,7 @@ class Pill(models.Model):
             'problem_items_count': 0
         }
 
-    def grant_purchased_books(self):
+    def grant_purchased_books(self, purchase_method: str = 'user_paid'):
         from .models import PurchasedBook
 
         items = self.items.select_related('product').all()
@@ -480,7 +486,8 @@ class Pill(models.Model):
                 product=product,
                 defaults={
                     'product_name': product.name,
-                    'pill_item': item
+                    'pill_item': item,
+                    'purchase_method': purchase_method,
                 }
             )
 
@@ -631,6 +638,12 @@ class PurchasedBook(models.Model):
     pill_item = models.ForeignKey(PillItem, on_delete=models.SET_NULL, null=True, blank=True, related_name='purchased_books')
     product_name = models.CharField(max_length=255, blank=True)
     price_at_sale = models.FloatField(null=True, blank=True, help_text="Price at the time of purchase/assignment")
+    purchase_method = models.CharField(
+        max_length=20,
+        choices=PURCHASE_METHOD_CHOICES,
+        default='user_paid',
+        db_index=True,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

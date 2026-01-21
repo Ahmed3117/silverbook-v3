@@ -1559,12 +1559,14 @@ class RestoreUserView(APIView):
                         pill.items.add(pill_item)
                         
                         # Create PurchasedBook
+                        restored_purchase_method = 'free' if float(book_data.get('price_at_sale', 0.0) or 0.0) <= 0 else 'user_paid'
                         PurchasedBook.objects.create(
                             user=restored_user,
                             pill=pill,
                             product=product,
                             pill_item=pill_item,
-                            product_name=book_data['product_name']
+                            product_name=book_data['product_name'],
+                            purchase_method=restored_purchase_method,
                         )
                         
                         restored_books_count += 1
