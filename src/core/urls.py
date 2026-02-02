@@ -25,6 +25,7 @@ urlpatterns = [
     path('products/', include('products.urls')),
     path('analysis/', include('analysis.urls')),
     path('dashboard/logs/', include('dashboard_logs.urls')),
+    path('permissions/', include('permissions.urls')),
     path('api/webhook/easypay/', easypay_webhook, name='easypay_webhook_root'),
     path('api/webhook/easypay/<str:api_key>/', easypay_webhook, name='easypay_webhook_with_key'),
 ]
