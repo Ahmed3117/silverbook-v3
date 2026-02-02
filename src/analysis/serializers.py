@@ -97,7 +97,7 @@ class AnalysisPurchaserUserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['name', 'username', 'year_displayed', 'purchase_method']
+        fields = ['id', 'name', 'username', 'year_displayed', 'purchase_method']
 
     def get_year_displayed(self, obj):
         try:
