@@ -494,7 +494,9 @@ def signin(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def signin_dashboard(request):
-    """Signin endpoint for staff/superusers (dashboard). Returns only tokens."""
+    """Signin endpoint for staff/superusers (dashboard). Returns tokens with permissions."""
+    from permissions.utils import add_permissions_to_login_response
+    
     username = request.data.get('username')
     password = request.data.get('password')
 
@@ -508,10 +510,19 @@ def signin_dashboard(request):
 
     try:
         refresh = RefreshToken.for_user(user)
-        return Response({
+        response_data = {
             'refresh': str(refresh),
             'access': str(refresh.access_token),
-        })
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'name': user.get_full_name() or user.username,
+                'is_staff': user.is_staff,
+            },
+        }
+        # Add admin permissions if available
+        add_permissions_to_login_response(user, response_data)
+        return Response(response_data)
     except Exception as e:
         return Response({'error': 'فشل إنشاء رمز المصادقة.'}, status=status.HTTP_400_BAD_REQUEST)
     
