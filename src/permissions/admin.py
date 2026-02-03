@@ -1,5 +1,5 @@
 from django.contrib import admin
-from django.utils.html import format_html, mark_safe
+from django.utils.html import mark_safe
 from .models import BackendEndpoint, DashboardPage, DashboardFeature, PermissionGroup, AdminPermission
 
 
@@ -29,7 +29,7 @@ class BackendEndpointAdmin(admin.ModelAdmin):
         features = list(obj.features.all()[:5])
         if features:
             return ", ".join([f.name for f in features])
-        return format_html('<span style="color: orange;">Not linked</span>')
+        return mark_safe('<span style="color: orange;">Not linked</span>')
     used_in_features.short_description = 'Features'
 
     def has_module_permission(self, request):
