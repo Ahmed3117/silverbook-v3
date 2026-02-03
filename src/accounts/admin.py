@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from django.utils.html import format_html
+from django.utils.html import mark_safe
 from django.utils import timezone
 from .models import User, UserProfileImage, UserDevice, OTP, SecurityBlock, AuthenticationAttempt
 from django.contrib import messages
@@ -41,7 +41,7 @@ class UserProfileImageAdmin(admin.ModelAdmin):
     @admin.display(description='Image Preview')
     def get_image_preview(self, obj):
         if obj.image:
-            return format_html('<img src="{}" width="100" />', obj.image.url)
+            return mark_safe(f'<img src="{obj.image.url}" width="100" />')
         return "No Image"
 
 
@@ -160,7 +160,7 @@ class SecurityBlockAdmin(admin.ModelAdmin):
         if not obj.is_active:
             return "غير نشط"
         if obj.is_expired():
-            return format_html('<span style="color: green;">منتهي</span>')
+            return mark_safe('<span style="color: green;">منتهي</span>')
         return obj.remaining_time_formatted()
     
     @admin.display(description='Is Expired?', boolean=True)

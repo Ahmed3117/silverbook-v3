@@ -201,16 +201,16 @@ class AdminPermissionAdmin(admin.ModelAdmin):
 
     def status_badge(self, obj):
         if obj.is_blocked:
-            return format_html(
+            return mark_safe(
                 '<span style="background: #dc3545; color: white; padding: 2px 8px; '
                 'border-radius: 3px; font-size: 11px;">BLOCKED</span>'
             )
         if obj.is_super_admin:
-            return format_html(
+            return mark_safe(
                 '<span style="background: #28a745; color: white; padding: 2px 8px; '
                 'border-radius: 3px; font-size: 11px;">SUPER ADMIN</span>'
             )
-        return format_html(
+        return mark_safe(
             '<span style="background: #007bff; color: white; padding: 2px 8px; '
             'border-radius: 3px; font-size: 11px;">ACTIVE</span>'
         )
