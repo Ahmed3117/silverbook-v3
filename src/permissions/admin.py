@@ -146,7 +146,7 @@ class PermissionGroupAdmin(admin.ModelAdmin):
         features = obj.denied_features.count()
         if pages == 0 and features == 0:
             return format_html('<span style="color: green;">Full Access</span>')
-        return f"{pages} pages, {features} features denied"
+        return format_html('{} pages, {} features denied', pages, features)
     restrictions_summary.short_description = 'Restrictions'
 
     def member_count(self, obj):
