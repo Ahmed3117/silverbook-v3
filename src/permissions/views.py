@@ -71,8 +71,8 @@ class DashboardFeatureViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        # Filter by page if provided
-        page_id = self.request.query_params.get('page')
+        # Filter by page if provided (use page_id to avoid conflicts with pagination)
+        page_id = self.request.query_params.get('page_id')
         if page_id:
             queryset = queryset.filter(page_id=page_id)
         return queryset.order_by('page__display_order', 'display_order')
