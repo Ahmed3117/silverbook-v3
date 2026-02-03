@@ -23,7 +23,7 @@ class DashboardFeatureSimpleSerializer(serializers.ModelSerializer):
     """Simple serializer for features (used in sidebar)"""
     class Meta:
         model = DashboardFeature
-        fields = ['code', 'name']
+        fields = ['id', 'code', 'name']
 
 
 class DashboardPageSerializer(serializers.ModelSerializer):
@@ -33,7 +33,7 @@ class DashboardPageSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DashboardPage
-        fields = ['code', 'name', 'route_name', 'icon', 'features', 'children']
+        fields = ['id', 'code', 'name', 'route_name', 'icon', 'features', 'children']
 
     def get_children(self, obj):
         children = obj.children.filter(is_active=True).order_by('display_order')
