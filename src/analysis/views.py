@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from django.db.models import Count, Sum, Q, F, IntegerField, OuterRef, Subquery, Case, When, Value, CharField
 from django.db.models.functions import Coalesce
 from urllib.parse import urlencode, urlsplit, urlunsplit, parse_qs
+from datetime import datetime, timedelta
 from products.models import PurchasedBook, Product, Pill
 from accounts.models import YEAR_CHOICES
 from .serializers import SalesAnalyticsSerializer, BestSellerProductSerializer
@@ -275,8 +276,18 @@ def sales_analytics(request):
     Query Parameters:
     - ordering: 'ascend' or 'descend' (default: 'descend')
     - limit: number to limit results per list (default: no limit)
-    - date_from: filter from this date (format: YYYY-MM-DD)
-    - date_to: filter to this date (format: YYYY-MM-DD)
+    - date_from: filter from this date (format: YYYY-MM-DD or ISO format with time like 2026-02-03T14:30:00)
+    - date_to: filter to this date (format: YYYY-MM-DD or ISO format with time like 2026-02-03T18:45:00)
+    
+    Examples:
+    - /analysis/sales-analytics/?date_from=2026-02-03&date_to=2026-02-03
+      Returns all records from 2026-02-03 (00:00:00 to 23:59:59)
+    
+    - /analysis/sales-analytics/?date_from=2026-02-03T14:30:00&date_to=2026-02-03T18:45:00
+      Returns records between 2:30 PM and 6:45 PM on 2026-02-03
+    
+    - /analysis/sales-analytics/?date_from=2026-02-03&date_to=2026-02-05
+      Returns records from entire day on 2026-02-03 through entire day on 2026-02-05
     """
     # Get query parameters
     ordering = request.query_params.get('ordering', 'descend')
@@ -302,6 +313,31 @@ def sales_analytics(request):
     # Determine ordering direction
     order_prefix = '' if ordering == 'ascend' else '-'
     
+    # Helper function to parse date strings and handle end-of-day for date_to
+    def _parse_datetime(date_str, is_end_of_day=False):
+        """Parse date string. If is_end_of_day=True and only date is provided, set to 23:59:59."""
+        if not date_str:
+            return None
+        try:
+            # Try parsing as datetime first (ISO format with time)
+            if 'T' in date_str or ' ' in date_str:
+                return datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+            else:
+                # Parse as date only (YYYY-MM-DD)
+                parsed_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+                if is_end_of_day:
+                    # Set to end of day (23:59:59)
+                    return datetime.combine(parsed_date, datetime.max.time())
+                else:
+                    # Set to start of day (00:00:00)
+                    return datetime.combine(parsed_date, datetime.min.time())
+        except (ValueError, AttributeError):
+            return None
+    
+    # Parse dates
+    date_from_parsed = _parse_datetime(date_from, is_end_of_day=False)
+    date_to_parsed = _parse_datetime(date_to, is_end_of_day=True)
+    
     # Query purchased books (these represent completed sales)
     purchased_books = PurchasedBook.objects.select_related(
         'product__subject',
@@ -309,19 +345,19 @@ def sales_analytics(request):
     )
     
     # Apply date filters if provided
-    if date_from:
-        purchased_books = purchased_books.filter(created_at__gte=date_from)
-    if date_to:
-        purchased_books = purchased_books.filter(created_at__lte=date_to)
+    if date_from_parsed:
+        purchased_books = purchased_books.filter(created_at__gte=date_from_parsed)
+    if date_to_parsed:
+        purchased_books = purchased_books.filter(created_at__lte=date_to_parsed)
     
     # Query all pills for total orders count
     all_pills = Pill.objects.all()
     
     # Apply date filters to all_pills as well
-    if date_from:
-        all_pills = all_pills.filter(date_added__gte=date_from)
-    if date_to:
-        all_pills = all_pills.filter(date_added__lte=date_to)
+    if date_from_parsed:
+        all_pills = all_pills.filter(date_added__gte=date_from_parsed)
+    if date_to_parsed:
+        all_pills = all_pills.filter(date_added__lte=date_to_parsed)
     
     # Summary statistics
     summary = {
@@ -410,8 +446,15 @@ def best_seller_products(request):
     
     Query Parameters:
     - limit: number to limit results (default: 10)
-    - date_from: filter from this date (format: YYYY-MM-DD)
-    - date_to: filter to this date (format: YYYY-MM-DD)
+    - date_from: filter from this date (format: YYYY-MM-DD or ISO format with time like 2026-02-03T14:30:00)
+    - date_to: filter to this date (format: YYYY-MM-DD or ISO format with time like 2026-02-03T18:45:00)
+    
+    Examples:
+    - /analysis/best-seller-products/?date_from=2026-02-03&date_to=2026-02-03
+      Returns best sellers from entire day on 2026-02-03
+    
+    - /analysis/best-seller-products/?date_from=2026-02-03T14:30:00&date_to=2026-02-03T18:45:00&limit=5
+      Returns top 5 best sellers between 2:30 PM and 6:45 PM
     """
     # Get query parameters
     limit = request.query_params.get('limit', 10)
@@ -426,14 +469,39 @@ def best_seller_products(request):
     except ValueError:
         limit = 10
     
+    # Helper function to parse date strings and handle end-of-day for date_to
+    def _parse_datetime(date_str, is_end_of_day=False):
+        """Parse date string. If is_end_of_day=True and only date is provided, set to 23:59:59."""
+        if not date_str:
+            return None
+        try:
+            # Try parsing as datetime first (ISO format with time)
+            if 'T' in date_str or ' ' in date_str:
+                return datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+            else:
+                # Parse as date only (YYYY-MM-DD)
+                parsed_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+                if is_end_of_day:
+                    # Set to end of day (23:59:59)
+                    return datetime.combine(parsed_date, datetime.max.time())
+                else:
+                    # Set to start of day (00:00:00)
+                    return datetime.combine(parsed_date, datetime.min.time())
+        except (ValueError, AttributeError):
+            return None
+    
+    # Parse dates
+    date_from_parsed = _parse_datetime(date_from, is_end_of_day=False)
+    date_to_parsed = _parse_datetime(date_to, is_end_of_day=True)
+    
     # Get best selling products from PurchasedBook with date filtering
     best_sellers = PurchasedBook.objects.all()
     
     # Apply date filters if provided
-    if date_from:
-        best_sellers = best_sellers.filter(created_at__gte=date_from)
-    if date_to:
-        best_sellers = best_sellers.filter(created_at__lte=date_to)
+    if date_from_parsed:
+        best_sellers = best_sellers.filter(created_at__gte=date_from_parsed)
+    if date_to_parsed:
+        best_sellers = best_sellers.filter(created_at__lte=date_to_parsed)
     
     # Continue with aggregation
     best_sellers = best_sellers.values(
