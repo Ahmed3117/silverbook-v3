@@ -15,20 +15,22 @@ class BackendEndpointAdmin(admin.ModelAdmin):
     ordering = ['view_name']
 
     def used_in_pages(self, obj):
-        pages = obj.pages.all()
+        # Get unique pages from all features that use this endpoint
+        pages = set()
+        for feature in obj.features.all():
+            if feature.page:
+                pages.add(feature.page)
         if pages:
-            return ", ".join([p.name for p in pages[:3]])
+            return ", ".join([p.name for p in list(pages)[:3]])
         return "-"
     used_in_pages.short_description = 'Pages'
 
     def used_in_features(self, obj):
-        features = list(obj.features.all()[:2])
-        exclusive = list(obj.exclusive_to_features.all()[:2])
-        names = [f.name for f in features] + [f"*{f.name}" for f in exclusive]
-        if names:
-            return ", ".join(names)
+        features = list(obj.features.all()[:5])
+        if features:
+            return ", ".join([f.name for f in features])
         return format_html('<span style="color: orange;">Not linked</span>')
-    used_in_features.short_description = 'Features (* = exclusive)'
+    used_in_features.short_description = 'Features'
 
     def has_module_permission(self, request):
         # Only show to superusers (developers)
