@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.db.models import Sum
-from django.utils.html import format_html, mark_safe
+from django.utils.html import mark_safe
 from django.utils import timezone
 from django.http import HttpResponse
 from .models import (
@@ -612,7 +612,7 @@ class SpecialProductAdmin(admin.ModelAdmin):
     @admin.display(description='Special Image')
     def get_image_preview(self, obj):
         if obj.special_image:
-            return format_html('<img src="{}" width="50" height="50" />', obj.special_image.url)
+            return mark_safe(f'<img src="{obj.special_image.url}" width="50" height="50" />')
         return "No Image"
 
 @admin.register(LovedProduct)
