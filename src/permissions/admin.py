@@ -1,5 +1,5 @@
 from django.contrib import admin
-from django.utils.html import format_html
+from django.utils.html import format_html, mark_safe
 from .models import BackendEndpoint, DashboardPage, DashboardFeature, PermissionGroup, AdminPermission
 
 
@@ -145,8 +145,8 @@ class PermissionGroupAdmin(admin.ModelAdmin):
         pages = obj.denied_pages.count()
         features = obj.denied_features.count()
         if pages == 0 and features == 0:
-            return format_html('<span style="color: green;">Full Access</span>')
-        return format_html('{} pages, {} features denied', pages, features)
+            return mark_safe('<span style="color: green;">Full Access</span>')
+        return f"{pages} pages, {features} features denied"
     restrictions_summary.short_description = 'Restrictions'
 
     def member_count(self, obj):
