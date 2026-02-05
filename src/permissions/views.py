@@ -43,17 +43,17 @@ class DashboardPageViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=False, methods=['get'])
     def flat_list(self, request):
-        """Get all pages as a flat list (for select dropdowns)"""
-        pages = DashboardPage.objects.filter(is_active=True).order_by('display_order')
-        data = [
-            {
-                'id': page.id,
-                'code': page.code,
-                'name': str(page),  # Includes parent name
-            }
-            for page in pages
-        ]
-        return Response(data)
+        """Get all pages as a flat list without pagination (returns full data)"""
+        pages = DashboardPage.objects.filter(is_active=True, parent__isnull=True).order_by('display_order')
+        serializer = DashboardPageSerializer(pages, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['get'])
+    def flat_detail(self, request, pk=None):
+        """Get a single page in flat format (with full serialization)"""
+        page = self.get_object()
+        serializer = DashboardPageSerializer(page)
+        return Response(serializer.data)
 
 
 class DashboardFeatureViewSet(viewsets.ReadOnlyModelViewSet):
@@ -116,16 +116,17 @@ class PermissionGroupViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def flat_list(self, request):
-        """Get all permission groups as a flat list (for select dropdowns)"""
+        """Get all permission groups as a flat list without pagination (returns full data)"""
         groups = PermissionGroup.objects.filter(is_active=True).order_by('name')
-        data = [
-            {
-                'id': group.id,
-                'name': group.name,
-            }
-            for group in groups
-        ]
-        return Response(data)
+        serializer = PermissionGroupSerializer(groups, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['get'])
+    def flat_detail(self, request, pk=None):
+        """Get a single permission group in flat format (with full serialization)"""
+        group = self.get_object()
+        serializer = PermissionGroupSerializer(group)
+        return Response(serializer.data)
 
 
 class AdminPermissionViewSet(viewsets.ModelViewSet):
