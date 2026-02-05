@@ -114,6 +114,19 @@ class PermissionGroupViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(is_active=is_active.lower() == 'true')
         return queryset.order_by('name')
 
+    @action(detail=False, methods=['get'])
+    def flat_list(self, request):
+        """Get all permission groups as a flat list (for select dropdowns)"""
+        groups = PermissionGroup.objects.filter(is_active=True).order_by('name')
+        data = [
+            {
+                'id': group.id,
+                'name': group.name,
+            }
+            for group in groups
+        ]
+        return Response(data)
+
 
 class AdminPermissionViewSet(viewsets.ModelViewSet):
     """
@@ -129,6 +142,11 @@ class AdminPermissionViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset().select_related('user', 'permission_group')
+
+        # Filter by user
+        user_id = self.request.query_params.get('user_id')
+        if user_id:
+            queryset = queryset.filter(user_id=user_id)
 
         # Filter by permission group
         group_id = self.request.query_params.get('permission_group')

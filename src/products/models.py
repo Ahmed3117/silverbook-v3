@@ -8,7 +8,6 @@ from services.beon_service import send_beon_sms
 from accounts.models import YEAR_CHOICES, User
 from core import settings
 from django.utils import timezone
-from django.utils.html import format_html
 import logging
 
 logger = logging.getLogger(__name__)
