@@ -1379,6 +1379,75 @@ def my_devices(request):
 
 @api_view(['POST'])
 @permission_classes([IsAdminUser])
+def ban_admin(request, pk):
+    """
+    Ban an admin user - logs them out from all devices and prevents login
+    Superuser only
+    
+    POST /accounts/dashboard/admins/<pk>/ban/
+    {
+        "reason": "Optional reason for ban"
+    }
+    """
+    if not request.user.is_superuser:
+        return Response({'error': 'Superuser access required'}, status=status.HTTP_403_FORBIDDEN)
+    
+    try:
+        admin_user = User.objects.get(pk=pk, user_type='admin')
+    except User.DoesNotExist:
+        return Response({'error': 'المسؤول غير موجود'}, status=status.HTTP_404_NOT_FOUND)
+    
+    if admin_user.is_banned:
+        return Response({'error': 'المسؤول محظور بالفعل'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Ban the user
+    admin_user.is_banned = True
+    admin_user.banned_at = timezone.now()
+    admin_user.ban_reason = request.data.get('reason', '')
+    admin_user.save(update_fields=['is_banned', 'banned_at', 'ban_reason'])
+    
+    # Deactivate all devices
+    UserDevice.objects.filter(user=admin_user).update(is_active=False)
+    
+    return Response({
+        'message': f'تم حظر المسؤول "{admin_user.name}" بنجاح',
+        'banned_at': admin_user.banned_at
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def unban_admin(request, pk):
+    """
+    Unban an admin user - allows them to login again
+    Superuser only
+    
+    POST /accounts/dashboard/admins/<pk>/unban/
+    """
+    if not request.user.is_superuser:
+        return Response({'error': 'Superuser access required'}, status=status.HTTP_403_FORBIDDEN)
+    
+    try:
+        admin_user = User.objects.get(pk=pk, user_type='admin')
+    except User.DoesNotExist:
+        return Response({'error': 'المسؤول غير موجود'}, status=status.HTTP_404_NOT_FOUND)
+    
+    if not admin_user.is_banned:
+        return Response({'error': 'المسؤول غير محظور'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Unban the user
+    admin_user.is_banned = False
+    admin_user.banned_at = None
+    admin_user.ban_reason = ''
+    admin_user.save(update_fields=['is_banned', 'banned_at', 'ban_reason'])
+    
+    return Response({
+        'message': f'تم إلغاء حظر المسؤول "{admin_user.name}" بنجاح'
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
 def ban_student(request, pk):
     """
     Ban a student - logs them out from all devices and prevents login
