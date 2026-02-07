@@ -43,8 +43,19 @@ class DashboardPageViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=False, methods=['get'])
     def flat_list(self, request):
-        """Get all pages as a flat list without pagination (returns full data)"""
-        pages = DashboardPage.objects.filter(is_active=True, parent__isnull=True).order_by('display_order')
+        """Get all pages as a flat list without pagination (returns full data)
+        
+        Query params:
+        - is_active: true/false (optional, filters by active status)
+        """
+        queryset = DashboardPage.objects.filter(parent__isnull=True)
+        
+        # Filter by active status if provided
+        is_active = request.query_params.get('is_active')
+        if is_active is not None:
+            queryset = queryset.filter(is_active=is_active.lower() == 'true')
+        
+        pages = queryset.order_by('display_order')
         serializer = DashboardPageSerializer(pages, many=True)
         return Response(serializer.data)
 
@@ -116,8 +127,19 @@ class PermissionGroupViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def flat_list(self, request):
-        """Get all permission groups as a flat list without pagination (returns full data)"""
-        groups = PermissionGroup.objects.filter(is_active=True).order_by('name')
+        """Get all permission groups as a flat list without pagination (returns full data)
+        
+        Query params:
+        - is_active: true/false (optional, filters by active status)
+        """
+        queryset = PermissionGroup.objects.all()
+        
+        # Filter by active status if provided
+        is_active = request.query_params.get('is_active')
+        if is_active is not None:
+            queryset = queryset.filter(is_active=is_active.lower() == 'true')
+        
+        groups = queryset.order_by('name')
         serializer = PermissionGroupSerializer(groups, many=True)
         return Response(serializer.data)
 
