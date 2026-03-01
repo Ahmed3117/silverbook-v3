@@ -529,6 +529,115 @@ def signin_dashboard(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+def signin_teacher(request):
+    """Signin endpoint exclusively for teachers. Rejects non-teacher users."""
+    from services.security_service import security_service
+
+    username = request.data.get('username')
+    password = request.data.get('password')
+
+    if not username:
+        return Response({'error': 'رقم الهاتف مطلوب'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Get client info for tracking
+    device_info_data = get_device_info_from_request(request)
+    ip_address = device_info_data['ip_address']
+    user_agent = device_info_data['user_agent']
+    device_id = device_info_data.get('device_id')
+
+    # Check if user is blocked
+    block_status = security_service.get_block_status(username, 'login')
+    if block_status and block_status['is_blocked']:
+        security_service.check_and_record_attempt(
+            phone_number=username,
+            attempt_type='login',
+            success=False,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            device_id=device_id,
+            failure_reason='تم الحظر بسبب كثرة المحاولات الفاشلة'
+        )
+        return Response({
+            'error': block_status['message_ar'],
+            'error_code': 'account_blocked',
+            'blocked_until': block_status['blocked_until'],
+            'remaining_seconds': block_status['remaining_seconds'],
+            'remaining_time': block_status['remaining_formatted'],
+            'block_level': block_status['block_level']
+        }, status=status.HTTP_403_FORBIDDEN)
+
+    # Attempt authentication
+    user = authenticate(username=username, password=password)
+
+    if not user:
+        attempt_result = security_service.check_and_record_attempt(
+            phone_number=username,
+            attempt_type='login',
+            success=False,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            device_id=device_id,
+            failure_reason='بيانات الدخول غير صحيحة'
+        )
+
+        if not attempt_result['allowed']:
+            block_info = attempt_result['block_info']
+            return Response({
+                'error': block_info['message_ar'],
+                'error_code': 'account_blocked',
+                'blocked_until': block_info['blocked_until'],
+                'remaining_seconds': block_info['remaining_seconds'],
+                'remaining_time': block_info['remaining_formatted'],
+                'block_level': block_info['block_level']
+            }, status=status.HTTP_403_FORBIDDEN)
+
+        base_error = 'بيانات الدخول غير صحيحة.'
+        response_data = {'error': base_error}
+        if 'remaining_attempts' in attempt_result:
+            response_data['remaining_attempts'] = attempt_result['remaining_attempts']
+            warning_text = f"بيانات الدخول غير صحيحة. لديك عدد ({attempt_result['remaining_attempts']}) محاولات متبقية"
+            response_data['warning'] = warning_text
+            response_data['error'] = warning_text
+
+        return Response(response_data, status=status.HTTP_400_BAD_REQUEST)
+
+    # Successful auth - record it
+    security_service.check_and_record_attempt(
+        phone_number=username,
+        attempt_type='login',
+        success=True,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        device_id=device_id
+    )
+
+    # Check if user is banned
+    if user.is_banned:
+        return Response({'error': 'لقد تم حظر هذا الحساب'}, status=status.HTTP_403_FORBIDDEN)
+
+    # Only allow teachers
+    if user.user_type != 'teacher':
+        return Response({'error': 'هذا المسار مخصص للمدرسين فقط.'}, status=status.HTTP_403_FORBIDDEN)
+
+    try:
+        refresh = RefreshToken.for_user(user)
+        return Response({
+            'refresh': str(refresh),
+            'access': str(refresh.access_token),
+            'user': {
+                'id': user.id,
+                'name': user.name,
+                'username': user.username,
+                'user_type': user.user_type,
+            },
+        })
+    except Exception as e:
+        logger.error(f"Error during teacher signin for {username}: {str(e)}")
+        return Response({'error': 'فشل إنشاء رمز المصادقة.'}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
 def request_password_reset(request):
     """
     Request password reset - Send OTP via WhatsApp
