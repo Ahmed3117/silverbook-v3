@@ -5,6 +5,7 @@ This eliminates the need to manually add permission classes to every view.
 from django.utils.deprecation import MiddlewareMixin
 from django.http import JsonResponse
 from django.urls import resolve
+from django.conf import settings
 from permissions.models import AdminPermission
 
 
@@ -15,6 +16,8 @@ class AdminPermissionMiddleware(MiddlewareMixin):
     - Applies only to authenticated staff users
     - Checks endpoint permissions automatically
     - Supports context via headers or query params
+    - Handles JWT authentication for DRF APIs (since DRF auth runs inside the view,
+      but middleware runs before the view)
     
     Advantages:
     - No need to add permission classes to each view
@@ -44,21 +47,27 @@ class AdminPermissionMiddleware(MiddlewareMixin):
         if any(request.path.startswith(path) for path in self.EXCLUDED_PATHS):
             return None
 
-        # Only check authenticated users
-        if not request.user.is_authenticated:
-            return None
+        # Try to get the authenticated user
+        # Django's AuthenticationMiddleware sets request.user for session-based auth,
+        # but DRF JWT auth runs inside the view (too late for middleware).
+        # So we manually parse the JWT token here if the user isn't authenticated yet.
+        user = request.user
+        if not user.is_authenticated:
+            user = self._get_jwt_user(request)
+            if user is None:
+                return None
 
         # Non-staff users bypass admin permission checks
-        if not getattr(request.user, 'is_staff', False):
+        if not getattr(user, 'is_staff', False):
             return None
 
         # Django superusers always have access
-        if request.user.is_superuser:
+        if user.is_superuser:
             return None
 
         # Get admin permission
         try:
-            admin_permission = request.user.admin_permission
+            admin_permission = user.admin_permission
         except (AttributeError, AdminPermission.DoesNotExist):
             # No admin permission record = full access
             return None
@@ -104,6 +113,52 @@ class AdminPermissionMiddleware(MiddlewareMixin):
 
         # Permission granted, continue to view
         return None
+
+    def _get_jwt_user(self, request):
+        """
+        Manually parse the JWT token from the request to get the user.
+        This is needed because DRF authentication runs inside the view,
+        but the middleware runs before the view.
+        """
+        try:
+            from rest_framework_simplejwt.tokens import AccessToken
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+
+            # Read the auth header configured in SIMPLE_JWT settings
+            # AUTH_HEADER_NAME = 'HTTP_AUTH' means the header is 'Auth: Bearer <token>'
+            header_name = getattr(settings, 'SIMPLE_JWT', {}).get('AUTH_HEADER_NAME', 'HTTP_AUTHORIZATION')
+            auth_header = request.META.get(header_name, '')
+
+            if not auth_header:
+                return None
+
+            # Parse 'Bearer <token>'
+            parts = auth_header.split()
+            if len(parts) != 2:
+                return None
+
+            header_type = getattr(settings, 'SIMPLE_JWT', {}).get('AUTH_HEADER_TYPES', 'Bearer')
+            # AUTH_HEADER_TYPES can be a string or tuple
+            if isinstance(header_type, str):
+                header_type = (header_type,)
+
+            if parts[0] not in header_type:
+                return None
+
+            raw_token = parts[1]
+
+            # Validate token and get user
+            validated_token = AccessToken(raw_token)
+            user_id = validated_token.get('user_id')
+            if user_id is None:
+                return None
+
+            user = User.objects.select_related('admin_permission').get(pk=user_id)
+            return user
+
+        except Exception:
+            return None
 
     def _get_view_name(self, request):
         """Get the Django view name for permission checking."""
