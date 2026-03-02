@@ -1,7 +1,12 @@
 """
 Middleware for automatic admin permission checking on all API requests.
 This eliminates the need to manually add permission classes to every view.
+
+Also enforces token staleness: when an admin's permissions change,
+any JWT token issued before the change is rejected with 401,
+forcing the frontend to re-login and get fresh permissions.
 """
+from datetime import datetime, timezone as dt_timezone
 from django.utils.deprecation import MiddlewareMixin
 from django.http import JsonResponse
 from django.urls import resolve
@@ -71,6 +76,13 @@ class AdminPermissionMiddleware(MiddlewareMixin):
         except (AttributeError, AdminPermission.DoesNotExist):
             # No admin permission record = full access
             return None
+
+        # Check if token was issued before permissions changed (force re-login)
+        if self._is_token_stale(request, admin_permission):
+            return JsonResponse({
+                'detail': 'Your permissions have been updated. Please login again.',
+                'code': 'permissions_changed',
+            }, status=401)
 
         # Check if blocked
         if admin_permission.is_blocked:
@@ -154,11 +166,44 @@ class AdminPermissionMiddleware(MiddlewareMixin):
             if user_id is None:
                 return None
 
+            # Store token issued-at time for staleness check later
+            token_iat = validated_token.get('iat')
+            if token_iat:
+                request._jwt_iat = token_iat
+
             user = User.objects.select_related('admin_permission').get(pk=user_id)
             return user
 
         except Exception:
             return None
+
+    def _is_token_stale(self, request, admin_permission):
+        """
+        Check if the JWT token was issued before the last permission change.
+        If so, the token is stale and the admin must re-login to get fresh permissions.
+        """
+        # No change timestamp = permissions never changed since creation = not stale
+        if not admin_permission.permissions_changed_at:
+            return False
+
+        # Get the token's issued-at time (stored during _get_jwt_user)
+        token_iat = getattr(request, '_jwt_iat', None)
+        if token_iat is None:
+            return False
+
+        try:
+            # Convert Unix timestamp to timezone-aware datetime
+            token_issued_at = datetime.fromtimestamp(token_iat, tz=dt_timezone.utc)
+
+            # Ensure permissions_changed_at is timezone-aware
+            perm_changed_at = admin_permission.permissions_changed_at
+            if perm_changed_at.tzinfo is None:
+                from django.utils import timezone as django_tz
+                perm_changed_at = django_tz.make_aware(perm_changed_at)
+
+            return perm_changed_at > token_issued_at
+        except Exception:
+            return False
 
     def _get_view_name(self, request):
         """Get the Django view name for permission checking."""
