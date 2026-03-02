@@ -46,6 +46,9 @@ INSTALLED_APPS = [
     'accounts',
     'products',
     'analysis',
+    'teachers',
+    'dashboard_logs.apps.DashboardLogsConfig',
+    'permissions.apps.PermissionsConfig',
 ]
 AUTH_USER_MODEL ='accounts.User'
 
@@ -58,6 +61,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'permissions.middleware.AdminPermissionMiddleware',
 ]
 
 ROOT_URLCONF = 'core.urls'
