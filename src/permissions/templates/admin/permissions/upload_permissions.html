@@ -1,0 +1,146 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Upload Permissions JSON" %}{% endblock %}
+
+{% block breadcrumbs %}
+  <div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">{% trans "Home" %}</a>
+    &rsaquo; <a href="{% url 'admin:app_list' 'permissions' %}">{% trans "Admin Permissions System" %}</a>
+    &rsaquo; {% trans "Upload Permissions JSON" %}
+  </div>
+{% endblock %}
+
+{% block content %}
+<div id="content-main">
+  {% if messages %}
+    {% for message in messages %}
+      <div class="{% if message.tags %}{{ message.tags }}{% endif %}" style="padding: 10px; margin-bottom: 10px; border-radius: 4px; {% if 'success' in message.tags %}background: #dff0d8; color: #3c763d; border: 1px solid #d6e9c6;{% elif 'error' in message.tags %}background: #f2dede; color: #a94442; border: 1px solid #ebccd1;{% elif 'warning' in message.tags %}background: #fcf8e3; color: #8a6d3b; border: 1px solid #faebcc;{% else %}background: #d9edf7; color: #31708f; border: 1px solid #bce8f1;{% endif %}">
+        {{ message }}
+      </div>
+    {% endfor %}
+  {% endif %}
+
+  {% if results %}
+    <fieldset class="module">
+      <h2>{% trans "Import Results" %}</h2>
+      <div style="padding: 10px;">
+        <table style="width: 100%; border-collapse: collapse;">
+          <tr style="background: #f8f8f8;">
+            <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">{% trans "Item" %}</th>
+            <th style="padding: 8px; text-align: center; border-bottom: 2px solid #ddd;">{% trans "Created" %}</th>
+            <th style="padding: 8px; text-align: center; border-bottom: 2px solid #ddd;">{% trans "Updated" %}</th>
+          </tr>
+          <tr>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;">📄 {% trans "Pages" %}</td>
+            <td style="padding: 8px; text-align: center; border-bottom: 1px solid #eee; color: #28a745; font-weight: bold;">{{ results.pages_created }}</td>
+            <td style="padding: 8px; text-align: center; border-bottom: 1px solid #eee; color: #007bff;">{{ results.pages_updated }}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;">⚡ {% trans "Features" %}</td>
+            <td style="padding: 8px; text-align: center; border-bottom: 1px solid #eee; color: #28a745; font-weight: bold;">{{ results.features_created }}</td>
+            <td style="padding: 8px; text-align: center; border-bottom: 1px solid #eee; color: #007bff;">{{ results.features_updated }}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;">🔗 {% trans "Endpoints" %}</td>
+            <td style="padding: 8px; text-align: center; border-bottom: 1px solid #eee; color: #28a745; font-weight: bold;">{{ results.endpoints_created }}</td>
+            <td style="padding: 8px; text-align: center; border-bottom: 1px solid #eee; color: #007bff;">{{ results.endpoints_found }}</td>
+          </tr>
+        </table>
+
+        {% if results.errors %}
+          <div style="margin-top: 15px; padding: 10px; background: #f2dede; border: 1px solid #ebccd1; border-radius: 4px;">
+            <h3 style="color: #a94442; margin: 0 0 8px;">{% trans "Warnings / Errors" %}</h3>
+            <ul style="margin: 0; padding-left: 20px;">
+              {% for error in results.errors %}
+                <li style="color: #a94442;">{{ error }}</li>
+              {% endfor %}
+            </ul>
+          </div>
+        {% endif %}
+
+        {% if results.cleared %}
+          <p style="margin-top: 10px; padding: 8px; background: #fcf8e3; border: 1px solid #faebcc; border-radius: 4px; color: #8a6d3b;">
+            ⚠️ {% trans "Existing data was cleared before import." %}
+          </p>
+        {% endif %}
+      </div>
+    </fieldset>
+  {% endif %}
+
+  <fieldset class="module">
+    <h2>{% trans "Upload Permissions JSON File" %}</h2>
+    <div style="padding: 10px;">
+      <p style="color: #666; margin-bottom: 15px;">
+        {% trans "Upload a JSON file containing dashboard pages, features, and their backend endpoints. The file should follow this structure:" %}
+      </p>
+      <pre style="background: #f4f4f4; padding: 12px; border-radius: 4px; font-size: 12px; overflow-x: auto; direction: ltr; text-align: left;">{
+  "pages": [
+    {"code": "...", "name": "...", "route_name": "...", "icon": "...", "parent_code": null, "display_order": 1}
+  ],
+  "features": [
+    {
+      "code": "...", "name": "...", "page_code": "...", "description": "...",
+      "display_order": 1,
+      "endpoints": [{"view_name": "...", "method": "GET"}]
+    }
+  ]
+}</pre>
+
+      <form method="post" enctype="multipart/form-data" style="margin-top: 15px;">
+        {% csrf_token %}
+        <div style="margin-bottom: 15px;">
+          <label for="id_json_file" style="display: block; font-weight: bold; margin-bottom: 5px;">
+            {% trans "JSON File:" %}
+          </label>
+          <input type="file" name="json_file" id="id_json_file" accept=".json" required
+                 style="padding: 8px; border: 1px solid #ccc; border-radius: 4px; width: 100%; max-width: 500px;">
+        </div>
+
+        <div style="margin-bottom: 15px;">
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+            <input type="checkbox" name="clear_existing" id="id_clear_existing">
+            <span>{% trans "Clear existing data before import" %}</span>
+          </label>
+          <p class="help" style="margin: 4px 0 0 26px; color: #999; font-size: 11px;">
+            {% trans "⚠️ This will DELETE all existing pages, features, and endpoints before importing. Permission groups and admin permissions will keep their references but may need re-assignment." %}
+          </p>
+        </div>
+
+        <div style="margin-top: 20px;">
+          <input type="submit" value="{% trans 'Upload & Import' %}" class="default"
+                 style="padding: 8px 20px; font-size: 13px;">
+          <a href="{% url 'admin:app_list' 'permissions' %}" class="button" 
+             style="padding: 8px 20px; margin-left: 10px; text-decoration: none;">
+            {% trans "Cancel" %}
+          </a>
+        </div>
+      </form>
+    </div>
+  </fieldset>
+
+  <fieldset class="module" style="margin-top: 20px;">
+    <h2>{% trans "Current Data Summary" %}</h2>
+    <div style="padding: 10px;">
+      <table style="width: 100%; max-width: 400px; border-collapse: collapse;">
+        <tr>
+          <td style="padding: 6px;">📄 {% trans "Pages" %}</td>
+          <td style="padding: 6px; font-weight: bold;">{{ current_counts.pages }}</td>
+        </tr>
+        <tr>
+          <td style="padding: 6px;">⚡ {% trans "Features" %}</td>
+          <td style="padding: 6px; font-weight: bold;">{{ current_counts.features }}</td>
+        </tr>
+        <tr>
+          <td style="padding: 6px;">🔗 {% trans "Endpoints" %}</td>
+          <td style="padding: 6px; font-weight: bold;">{{ current_counts.endpoints }}</td>
+        </tr>
+        <tr>
+          <td style="padding: 6px;">👥 {% trans "Permission Groups" %}</td>
+          <td style="padding: 6px; font-weight: bold;">{{ current_counts.groups }}</td>
+        </tr>
+      </table>
+    </div>
+  </fieldset>
+</div>
+{% endblock %}
