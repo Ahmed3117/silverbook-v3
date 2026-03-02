@@ -232,6 +232,13 @@ class AdminPermission(models.Model):
         help_text="Blocked admins have NO access"
     )
 
+    permissions_changed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text="Timestamp of last permission change. Tokens issued before this are invalidated, forcing re-login."
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
