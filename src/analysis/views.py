@@ -399,7 +399,7 @@ def sales_analytics(request):
         product__teacher__isnull=False
     ).values(
         'product__teacher__id',
-        'product__teacher__name'
+        'product__teacher__user__name'
     ).annotate(
         count=Count('id')
     ).order_by(f'{order_prefix}count')
@@ -410,7 +410,7 @@ def sales_analytics(request):
     teachers = [
         {
             'id': item['product__teacher__id'],
-            'name': item['product__teacher__name'],
+            'name': item['product__teacher__user__name'],
             'count': item['count']
         }
         for item in teachers_data
@@ -509,7 +509,7 @@ def best_seller_products(request):
         'product__name',
         'product__price',
         'product__subject__name',
-        'product__teacher__name',
+        'product__teacher__user__name',
         'product__year'
     ).annotate(
         sales_count=Count('id'),
@@ -526,7 +526,7 @@ def best_seller_products(request):
             'name': item['product__name'],
             'price': item['product__price'],
             'subject': item['product__subject__name'],
-            'teacher': item['product__teacher__name'],
+            'teacher': item['product__teacher__user__name'],
             'year': item['product__year'],
             'sales_count': item['sales_count'],
             'total_revenue': float(item['total_revenue'] or 0.0)
