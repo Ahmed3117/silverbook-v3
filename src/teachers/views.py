@@ -42,11 +42,11 @@ def teacher_dashboard(request):
             status=status.HTTP_403_FORBIDDEN,
         )
 
-    # 2. Find the Teacher instance matching this user by name
-    teacher = Teacher.objects.select_related('subject').filter(name=user.name).first()
+    # 2. Find the Teacher instance linked to this user
+    teacher = Teacher.objects.select_related('subject').filter(user=user).first()
     if not teacher:
         return Response(
-            {'detail': 'لم يتم العثور على ملف المدرس. تأكد من تطابق الاسم.'},
+            {'detail': 'لم يتم العثور على ملف المدرس. تأكد من ربط حسابك بملف المدرس.'},
             status=status.HTTP_404_NOT_FOUND,
         )
 
@@ -190,10 +190,10 @@ def _get_teacher_for_request(request):
             {'detail': 'هذا الحساب ليس حساب مدرس.'},
             status=status.HTTP_403_FORBIDDEN,
         )
-    teacher = Teacher.objects.select_related('subject').filter(name=user.name).first()
+    teacher = Teacher.objects.select_related('subject').filter(user=user).first()
     if not teacher:
         return None, Response(
-            {'detail': 'لم يتم العثور على ملف المدرس. تأكد من تطابق الاسم.'},
+            {'detail': 'لم يتم العثور على ملف المدرس. تأكد من ربط حسابك بملف المدرس.'},
             status=status.HTTP_404_NOT_FOUND,
         )
     return teacher, None

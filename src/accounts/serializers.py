@@ -89,12 +89,11 @@ class UserSerializer(serializers.ModelSerializer):
         return value.strip()
     
     def validate(self, data):
-        """Validate username format based on user_type and teacher name uniqueness"""
+        """Validate username format based on user_type"""
         import re
         
         username = data.get('username')
         user_type = data.get('user_type')
-        name = data.get('name')
         
         # For updates, get the current user_type if not provided
         if self.instance and not user_type:
@@ -106,23 +105,6 @@ class UserSerializer(serializers.ModelSerializer):
             if not re.match(r'^01[0-2,5]{1}[0-9]{8}$', username):
                 raise serializers.ValidationError({
                     'username': 'بالنسبة للطلاب، يجب أن يكون اسم المستخدم رقم هاتف مصري صالح (مثل 01012345678)'
-                })
-        
-        # Validate unique teacher names
-        if user_type == 'teacher' and name:
-            query = User.objects.filter(
-                user_type='teacher',
-                name=name
-            )
-            
-            # Exclude current instance if updating
-            if self.instance:
-                query = query.exclude(pk=self.instance.pk)
-            
-            # Check if duplicate exists
-            if query.exists():
-                raise serializers.ValidationError({
-                    'name': f"يوجد معلم بالاسم '{name}' بالفعل. يجب أن تكون أسماء المعلمين فريدة."
                 })
         
         return data

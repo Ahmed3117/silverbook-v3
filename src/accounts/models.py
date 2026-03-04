@@ -118,34 +118,12 @@ class User(AbstractUser):
         return self.name if self.name else self.username
     
     def save(self, *args, **kwargs):
-        """Auto-set admin type for staff/superusers and validate teacher name"""
+        """Auto-set admin type for staff/superusers"""
         # Automatically set user_type to 'admin' for superusers or staff
         if self.is_superuser or self.is_staff:
             self.user_type = 'admin'
         
-        self.validate_teacher_name_unique()
         super().save(*args, **kwargs)
-    
-    def validate_teacher_name_unique(self):
-        """Ensure teacher names are unique among users with user_type='teacher'"""
-        from django.core.exceptions import ValidationError
-        
-        if self.user_type == 'teacher':
-            # Build query to check for duplicate teacher names
-            query = User.objects.filter(
-                user_type='teacher',
-                name=self.name
-            )
-            
-            # Exclude current instance if updating
-            if self.pk:
-                query = query.exclude(pk=self.pk)
-            
-            # Check if duplicate exists
-            if query.exists():
-                raise ValidationError({
-                    'name': f"A teacher with the name '{self.name}' already exists. Teacher names must be unique."
-                })
     
     class Meta:
         ordering = ['-created_at']
