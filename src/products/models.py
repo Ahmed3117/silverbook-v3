@@ -84,10 +84,15 @@ class Subject(models.Model):
         return self.name
     
 class Teacher(models.Model):
-    name = models.CharField(max_length=150)
     bio = models.TextField(null=True, blank=True)
     image = models.ImageField(upload_to='teachers/', null=True, blank=True)
     subject = models.ForeignKey(Subject, on_delete=models.CASCADE, related_name='teachers')
+    user = models.OneToOneField(
+        'accounts.User',
+        on_delete=models.CASCADE,
+        related_name='teacher_profile',
+        help_text="Link to the User account (user_type='teacher')"
+    )
     facebook = models.CharField(max_length=200, null=True, blank=True)
     instagram = models.CharField(max_length=200, null=True, blank=True)
     twitter = models.CharField(max_length=200, null=True, blank=True)
@@ -98,6 +103,11 @@ class Teacher(models.Model):
     telegram = models.CharField(max_length=200, null=True, blank=True)
     website = models.CharField(max_length=200, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    @property
+    def name(self):
+        """Teacher name is derived from the linked User."""
+        return self.user.name if self.user else ''
     
     def __str__(self):
         return self.name

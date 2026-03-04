@@ -67,15 +67,33 @@ class SubjectSerializer(serializers.ModelSerializer):
 
 class TeacherSerializer(serializers.ModelSerializer):
     subject_name = serializers.SerializerMethodField()
+    name = serializers.SerializerMethodField()
+    user_id = serializers.SerializerMethodField()
+    user_name = serializers.SerializerMethodField()
+    user_username = serializers.SerializerMethodField()
     # Make image writable for uploads, but serialize as full URL on read
     image = serializers.ImageField(required=False, allow_null=True, use_url=False)
 
     class Meta:
         model = Teacher
-        fields = ['id', 'name', 'bio','image','subject','subject_name' , 'facebook', 'instagram', 'twitter', 'youtube', 'linkedin', 'telegram', 'website','tiktok', 'whatsapp']
+        fields = ['id', 'name', 'user_id', 'user_name', 'user_username', 'bio', 'image', 'subject', 'subject_name',
+                  'facebook', 'instagram', 'twitter', 'youtube', 'linkedin', 'telegram', 'website', 'tiktok', 'whatsapp']
+
+    def get_name(self, obj):
+        return obj.user.name if obj.user else ''
+
+    def get_user_id(self, obj):
+        return obj.user.id if obj.user else None
+
+    def get_user_name(self, obj):
+        return obj.user.name if obj.user else None
+
+    def get_user_username(self, obj):
+        return obj.user.username if obj.user else None
 
     def get_subject_name(self, obj):
         return obj.subject.name if obj.subject else None
+
     def to_representation(self, instance):
         ret = super().to_representation(instance)
         request = self.context.get('request')
@@ -203,7 +221,7 @@ class ProductSerializer(serializers.ModelSerializer):
     def get_teacher_id(self, obj):
         return obj.teacher.id if obj.teacher else None
     def get_teacher_name(self, obj):
-        return obj.teacher.name if obj.teacher else None
+        return obj.teacher.user.name if obj.teacher and obj.teacher.user else None
     def get_teacher_image(self, obj):
         if obj.teacher and obj.teacher.image:
             return get_full_file_url(obj.teacher.image, self.context.get('request'))
@@ -444,7 +462,7 @@ class SimpleProductSerializer(serializers.ModelSerializer):
         return obj.subject.name if obj.subject else None
 
     def get_teacher_name(self, obj):
-        return obj.teacher.name if obj.teacher else None
+        return obj.teacher.user.name if obj.teacher and obj.teacher.user else None
 
 class SimpleSubjectSerializer(serializers.ModelSerializer):
     """Simple serializer for subject listings with minimal fields"""
@@ -454,9 +472,14 @@ class SimpleSubjectSerializer(serializers.ModelSerializer):
 
 class SimpleTeacherSerializer(serializers.ModelSerializer):
     """Simple serializer for teacher listings with minimal fields"""
+    name = serializers.SerializerMethodField()
+
     class Meta:
         model = Teacher
         fields = ['id', 'name']
+
+    def get_name(self, obj):
+        return obj.user.name if obj.user else ''
 
 class CouponCodeField(serializers.Field):
     def to_internal_value(self, data):
