@@ -90,6 +90,8 @@ class Teacher(models.Model):
     user = models.OneToOneField(
         'accounts.User',
         on_delete=models.CASCADE,
+        null=True,
+        blank=True,
         related_name='teacher_profile',
         help_text="Link to the User account (user_type='teacher')"
     )
