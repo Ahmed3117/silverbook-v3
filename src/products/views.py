@@ -41,15 +41,15 @@ class SubjectListView(generics.ListAPIView):
     search_fields = ['name', ]
  
 class TeacherListView(generics.ListAPIView):
-    queryset = Teacher.objects.all()
+    queryset = Teacher.objects.select_related('user', 'subject').all()
     permission_classes = [IsAuthenticated]
     serializer_class = TeacherSerializer
     filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter]
     filterset_fields = ['subject']
-    search_fields = ['name', 'subject__name']
+    search_fields = ['user__name', 'subject__name']
 
 class TeacherDetailView(generics.RetrieveAPIView):
-    queryset = Teacher.objects.all()
+    queryset = Teacher.objects.select_related('user', 'subject').all()
     serializer_class = TeacherSerializer
     permission_classes = [IsAuthenticated]
     lookup_field = 'id'
@@ -65,7 +65,7 @@ class ProductListView(generics.ListAPIView):
     serializer_class = ProductSerializer
     filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter]
     filterset_class = ProductFilter
-    search_fields = ['name', 'subject__name' , 'teacher__name', 'description']
+    search_fields = ['name', 'subject__name' , 'teacher__user__name', 'description']
 
 
 class ProductDetailView(generics.RetrieveAPIView):
@@ -192,7 +192,7 @@ class TeacherProductsView(APIView):
     
     def get(self, request, teacher_id, *args, **kwargs):
         try:
-            teacher = Teacher.objects.get(pk=teacher_id)
+            teacher = Teacher.objects.select_related('user').get(pk=teacher_id)
         except Teacher.DoesNotExist:
             return Response({'error': 'المعلم غير موجود'}, status=status.HTTP_400_BAD_REQUEST)
         
@@ -941,21 +941,185 @@ class SubjectRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
     
 
 class TeacherListCreateView(generics.ListCreateAPIView):
-    queryset = Teacher.objects.all()
+    """
+    GET: List all teachers (with search/filter/ordering).
+    POST: Create a new teacher + linked user in one request.
+    
+    POST body (JSON):
+    {
+        "username": "01012345678",
+        "password": "securepass",
+        "name": "Teacher Name",
+        "email": "optional@email.com",
+        "subject": 1,
+        "bio": "optional bio",
+        "image": null,
+        "facebook": null, "instagram": null, "twitter": null,
+        "youtube": null, "linkedin": null, "telegram": null,
+        "website": null, "tiktok": null, "whatsapp": null
+    }
+    """
+    queryset = Teacher.objects.select_related('user', 'subject').all()
     serializer_class = TeacherSerializer
     parser_classes = [MultiPartParser, FormParser, JSONParser]
     filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter, OrderingFilter]
     filterset_fields = ['subject']
-    search_fields = ['name', 'subject__name']
-    ordering_fields = ['id', 'name', 'created_at']
+    search_fields = ['user__name', 'subject__name']
+    ordering_fields = ['id', 'user__name', 'created_at']
     ordering = ['-created_at']
     permission_classes = [IsAdminUser]
 
+    def create(self, request, *args, **kwargs):
+        from django.db import transaction
+        from accounts.models import User
+
+        data = request.data
+        # Validate required user fields
+        username = data.get('username')
+        password = data.get('password')
+        name = data.get('name')
+        subject = data.get('subject')
+
+        errors = {}
+        if not username:
+            errors['username'] = 'هذا الحقل مطلوب.'
+        if not password:
+            errors['password'] = 'هذا الحقل مطلوب.'
+        if not name:
+            errors['name'] = 'هذا الحقل مطلوب.'
+        if not subject:
+            errors['subject'] = 'هذا الحقل مطلوب.'
+        if errors:
+            return Response(errors, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check username uniqueness
+        if User.objects.filter(username=username).exists():
+            return Response({'username': 'اسم المستخدم مُسجل بالفعل.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            with transaction.atomic():
+                # Create User
+                user = User.objects.create_user(
+                    username=username,
+                    password=password,
+                    name=name,
+                    email=data.get('email', ''),
+                    user_type='teacher',
+                )
+                # Create Teacher linked to user
+                teacher = Teacher.objects.create(
+                    user=user,
+                    subject_id=int(subject),
+                    bio=data.get('bio', ''),
+                    facebook=data.get('facebook'),
+                    instagram=data.get('instagram'),
+                    twitter=data.get('twitter'),
+                    youtube=data.get('youtube'),
+                    linkedin=data.get('linkedin'),
+                    telegram=data.get('telegram'),
+                    website=data.get('website'),
+                    tiktok=data.get('tiktok'),
+                    whatsapp=data.get('whatsapp'),
+                )
+                # Handle image upload
+                if 'image' in request.FILES:
+                    teacher.image = request.FILES['image']
+                    teacher.save()
+
+                serializer = TeacherSerializer(teacher, context={'request': request})
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
 class TeacherRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = Teacher.objects.all()
+    """
+    GET: Retrieve teacher detail.
+    PATCH/PUT: Update teacher + linked user in one request.
+    DELETE: Delete teacher + linked user in one request.
+    
+    PATCH body (JSON) - all fields optional:
+    {
+        "username": "new_phone",
+        "password": "new_password",
+        "name": "New Name",
+        "email": "new@email.com",
+        "subject": 2,
+        "bio": "updated bio",
+        "image": <file>,
+        "facebook": "...", ...
+    }
+    """
+    queryset = Teacher.objects.select_related('user', 'subject').all()
     serializer_class = TeacherSerializer
     parser_classes = [MultiPartParser, FormParser, JSONParser]
     permission_classes = [IsAdminUser]
+
+    def update(self, request, *args, **kwargs):
+        from django.db import transaction
+        from accounts.models import User
+
+        teacher = self.get_object()
+        user = teacher.user
+        data = request.data
+
+        try:
+            with transaction.atomic():
+                # Update User fields if provided
+                if user:
+                    username = data.get('username')
+                    if username and username != user.username:
+                        if User.objects.filter(username=username).exclude(pk=user.pk).exists():
+                            return Response({'username': 'اسم المستخدم مُسجل بالفعل.'}, status=status.HTTP_400_BAD_REQUEST)
+                        user.username = username
+
+                    if 'name' in data:
+                        user.name = data['name']
+                    if 'email' in data:
+                        user.email = data['email']
+                    if 'password' in data and data['password']:
+                        user.set_password(data['password'])
+                    user.save()
+
+                # Update Teacher fields
+                if 'subject' in data:
+                    teacher.subject_id = int(data['subject'])
+                if 'bio' in data:
+                    teacher.bio = data['bio']
+                
+                # Social fields
+                for field in ['facebook', 'instagram', 'twitter', 'youtube',
+                              'linkedin', 'telegram', 'website', 'tiktok', 'whatsapp']:
+                    if field in data:
+                        setattr(teacher, field, data[field])
+                
+                # Handle image
+                if 'image' in request.FILES:
+                    teacher.image = request.FILES['image']
+                
+                teacher.save()
+
+                serializer = TeacherSerializer(teacher, context={'request': request})
+                return Response(serializer.data)
+
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    def destroy(self, request, *args, **kwargs):
+        from django.db import transaction
+
+        teacher = self.get_object()
+        user = teacher.user
+
+        try:
+            with transaction.atomic():
+                teacher.delete()
+                if user:
+                    user.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
     
 
 class ProductListCreateView(generics.ListCreateAPIView):
@@ -1000,11 +1164,11 @@ class SubjectSimpleListView(generics.ListAPIView):
 
 class TeacherSimpleListView(generics.ListAPIView):
     """Simple teacher list endpoint with minimal fields for dropdowns/selections"""
-    queryset = Teacher.objects.all()
+    queryset = Teacher.objects.select_related('user').all()
     serializer_class = SimpleTeacherSerializer
     filter_backends = [rest_filters.SearchFilter, DjangoFilterBackend]
     filterset_fields = ['subject']
-    search_fields = ['name']
+    search_fields = ['user__name']
     permission_classes = [IsAdminUser]
     pagination_class = None  # Disable pagination for direct list response
 

@@ -1137,6 +1137,12 @@ class UserCreateAPIView(APIView):
     permission_classes = [IsAdminUser]
 
     def post(self, request):
+        # Block creating users with user_type=teacher via this endpoint
+        if request.data.get('user_type') == 'teacher':
+            return Response(
+                {'error': 'لا يمكن إنشاء مستخدم من نوع مدرس من هذا المسار. استخدم مسار إنشاء المدرس /products/dashboard/teachers/'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         serializer = UserSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.save()
@@ -1151,6 +1157,20 @@ class UserUpdateAPIView(APIView):
             user = User.objects.get(username=username)  # Changed to use username
         except User.DoesNotExist:
             return Response({'error': 'المستخدم غير موجود'}, status=status.HTTP_404_NOT_FOUND)
+        
+        # Block changing user_type to teacher via this endpoint
+        if request.data.get('user_type') == 'teacher':
+            return Response(
+                {'error': 'لا يمكن تغيير نوع المستخدم إلى مدرس من هذا المسار. استخدم مسار المدرسين /products/dashboard/teachers/'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Block editing teacher users via this endpoint
+        if user.user_type == 'teacher':
+            return Response(
+                {'error': 'لا يمكن تعديل بيانات المدرس من هذا المسار. استخدم مسار المدرسين /products/dashboard/teachers/<id>/'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
         # Check if password is being changed
         password_changed = 'password' in request.data
@@ -1180,6 +1200,13 @@ class UserDeleteAPIView(APIView):
             user = User.objects.get(pk=pk)
         except User.DoesNotExist:
             return Response({'error': 'المستخدم غير موجود'}, status=status.HTTP_404_NOT_FOUND)
+        
+        # Block deleting teacher users via this endpoint
+        if user.user_type == 'teacher':
+            return Response(
+                {'error': 'لا يمكن حذف المدرس من هذا المسار. استخدم مسار المدرسين /products/dashboard/teachers/<id>/'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
         # Archive user data before deletion
         with transaction.atomic():

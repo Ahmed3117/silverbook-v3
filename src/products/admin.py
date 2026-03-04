@@ -54,11 +54,15 @@ class SubjectAdmin(admin.ModelAdmin):
 
 @admin.register(Teacher)
 class TeacherAdmin(admin.ModelAdmin):
-    list_display = ('name', 'subject', 'created_at')
-    search_fields = ('name', 'subject__name')
-    autocomplete_fields = ('subject',)
+    list_display = ('get_name', 'subject', 'user', 'created_at')
+    search_fields = ('user__name', 'user__username', 'subject__name')
+    autocomplete_fields = ('subject', 'user')
     list_filter = ('subject', 'created_at')
     readonly_fields = ('created_at',)
+
+    @admin.display(description='Name')
+    def get_name(self, obj):
+        return obj.name
 
 class ProductImageInline(admin.TabularInline):
     model = ProductImage
