@@ -1344,7 +1344,7 @@ class UsersListView(generics.ListAPIView):
     filterset_fields = ['is_banned']
 
     def get_queryset(self):
-        return User.objects.filter(is_staff=False, is_superuser=False).order_by('-created_at')
+        return User.objects.filter(is_staff=False, is_superuser=False).exclude(user_type='teacher').order_by('-created_at')
 
     def get_serializer_class(self):
         from .serializers import PublicUserSerializer
