@@ -138,6 +138,7 @@ class ProductS3UploadSerializer(serializers.Serializer):
     base_image_object_key = serializers.CharField(max_length=500, required=False, allow_blank=True, help_text="S3 object key for product image (e.g., 'products/uuid.jpg')")
     
     is_available = serializers.BooleanField(default=True)
+    is_downloadable = serializers.BooleanField(default=False)
     
     def create(self, validated_data):
         """Create a product from S3 object keys"""
@@ -195,7 +196,7 @@ class ProductSerializer(serializers.ModelSerializer):
             'subject_id' ,'subject_name', 'teacher_id','teacher_name','teacher_image', 
             'price', 'description', 'date_added', 'discounted_price',
             'has_discount', 'current_discount', 'discount_expiry',
-            'base_image', 'is_available', 'related_products'
+            'base_image', 'is_available', 'is_downloadable', 'related_products'
         ]
         read_only_fields = [
             'product_number', 'date_added'
@@ -276,6 +277,7 @@ class ProductSerializer(serializers.ModelSerializer):
                     'pdf_file': None,  # Hidden for student endpoints
                     'year': related.year,
                     'is_available': related.is_available,
+                    'is_downloadable': related.is_downloadable,
                     'date_added': related.date_added,
                 })
             return related_items
@@ -358,7 +360,7 @@ class AdminProductSerializer(ProductSerializer):
             'subject_id' ,'subject_name', 'teacher_id','teacher_name','teacher_image', 
             'price', 'description', 'date_added', 'discounted_price',
             'has_discount', 'current_discount', 'discount_expiry',
-            'base_image', 'is_available', 'related_products', 'pdf_file', 'book_token'
+            'base_image', 'is_available', 'is_downloadable', 'related_products', 'pdf_file', 'book_token'
         ]
         read_only_fields = [
             'product_number', 'date_added'
@@ -390,6 +392,7 @@ class AdminProductSerializer(ProductSerializer):
                     'pdf_file': get_full_file_url(related.pdf_file, request) if related.pdf_file else None,
                     'year': related.year,
                     'is_available': related.is_available,
+                    'is_downloadable': related.is_downloadable,
                     'date_added': related.date_added,
                 })
             return related_items
@@ -709,6 +712,7 @@ class PillItemWithProductSerializer(serializers.ModelSerializer):
     discount_expiry = serializers.SerializerMethodField()
     base_image = serializers.SerializerMethodField()
     is_available = serializers.BooleanField(source='product.is_available', read_only=True)
+    is_downloadable = serializers.BooleanField(source='product.is_downloadable', read_only=True)
     related_products = serializers.SerializerMethodField()
     pdf_file = serializers.SerializerMethodField()
 
@@ -723,7 +727,7 @@ class PillItemWithProductSerializer(serializers.ModelSerializer):
             'date_added', 'discounted_price', 'has_discount', 'current_discount',
             'discount_expiry',
             'base_image',
-            'is_available', 'related_products', 'pdf_file'
+            'is_available', 'is_downloadable', 'related_products', 'pdf_file'
         ]
 
     def get_subject_id(self, obj):
@@ -797,6 +801,7 @@ class PillItemWithProductSerializer(serializers.ModelSerializer):
                     'pdf_file': None,
                     'year': related.year,
                     'is_available': related.is_available,
+                    'is_downloadable': related.is_downloadable,
                     'date_added': related.date_added,
                 })
             return related_items
@@ -1479,6 +1484,7 @@ class PurchasedBookSerializer(serializers.ModelSerializer):
     teacher_name = serializers.SerializerMethodField()
     base_image = serializers.SerializerMethodField()
     pdf_file = serializers.SerializerMethodField()
+    is_downloadable = serializers.SerializerMethodField()
     related_products = serializers.SerializerMethodField()
 
     class Meta:
@@ -1489,7 +1495,7 @@ class PurchasedBookSerializer(serializers.ModelSerializer):
             'pill', 'pill_id', 'pill_number',
             'pill_item', 'product_name', 'created_at',
             'student_name', 'student_phone', 'type', 'year', 'subject_id', 'subject_name',
-            'teacher_id', 'teacher_name', 'base_image', 'pdf_file', 'related_products'
+            'teacher_id', 'teacher_name', 'base_image', 'pdf_file', 'is_downloadable', 'related_products'
         ]
         read_only_fields = ['id', 'book_token', 'created_at', 'product_id', 'pill_id', 'pill_number']
 
@@ -1553,6 +1559,10 @@ class PurchasedBookSerializer(serializers.ModelSerializer):
             return get_full_file_url(product.pdf_file, request)
         return None
 
+    def get_is_downloadable(self, obj):
+        product = self._product(obj)
+        return product.is_downloadable if product else False
+
     def get_related_products(self, obj):
         """Return list of related products if this is a package, otherwise empty list."""
         product = self._product(obj)
@@ -1582,6 +1592,7 @@ class PurchasedBookSerializer(serializers.ModelSerializer):
                 'pdf_file': get_full_file_url(related.pdf_file, request) if related.pdf_file else None,
                 'year': related.year,
                 'is_available': related.is_available,
+                'is_downloadable': related.is_downloadable,
                 'date_added': related.date_added,
             })
         return related_items
