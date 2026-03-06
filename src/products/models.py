@@ -156,6 +156,11 @@ class Product(models.Model):
         help_text="Whether this digital book is available for purchase"
     )
 
+    is_downloadable = models.BooleanField(
+        default=False,
+        help_text="Whether this product can be downloaded as a file"
+    )
+
     book_token = models.CharField(max_length=64, null=True, blank=True, editable=False, db_index=True)
     
     def get_current_discount(self):

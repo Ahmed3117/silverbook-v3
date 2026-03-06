@@ -2059,6 +2059,7 @@ class MyPackageDetailsView(APIView):
                     'pdf_file': get_full_file_url(related.pdf_file, request) if related.pdf_file else None,
                     'year': related.year,
                     'is_available': related.is_available,
+                    'is_downloadable': related.is_downloadable,
                     'date_added': related.date_added,
                 })
             
@@ -2115,6 +2116,7 @@ class ProductRelatedProductsView(APIView):
                     'base_image': get_full_file_url(related.base_image, request) if related.base_image else None,
                     'year': related.year,
                     'is_available': related.is_available,
+                    'is_downloadable': related.is_downloadable,
                     'date_added': related.date_added,
                 })
             
@@ -2396,6 +2398,7 @@ class PackageBooksListView(APIView):
                     'pdf_file': get_full_file_url(related.pdf_file, request) if related.pdf_file else None,
                     'year': related.year,
                     'is_available': related.is_available,
+                    'is_downloadable': related.is_downloadable,
                     'date_added': related.date_added,
                 })
             
