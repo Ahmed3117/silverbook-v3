@@ -92,10 +92,10 @@ class OTPService:
             
             # Customize message based on purpose
             purpose_messages = {
-                'signup': f'مرحباً! رمز التحقق الخاص بك لإنشاء حساب جديد هو: {otp_code}\n\nالرمز صالح لمدة {self.OTP_EXPIRY_MINUTES} دقائق.',
-                'password_reset': f'رمز إعادة تعيين كلمة المرور الخاص بك هو: {otp_code}\n\nالرمز صالح لمدة {self.OTP_EXPIRY_MINUTES} دقائق.',
-                'phone_verification': f'رمز التحقق من رقم الهاتف: {otp_code}\n\nالرمز صالح لمدة {self.OTP_EXPIRY_MINUTES} دقائق.',
-                'default': f'رمز التحقق الخاص بك هو: {otp_code}\n\nالرمز صالح لمدة {self.OTP_EXPIRY_MINUTES} دقائق.'
+                 'signup': f'رمز إنشاء الحساب: {otp_code}\nصالح لمدة {self.OTP_EXPIRY_MINUTES} دقائق.',
+                 'password_reset': f'رمز إعادة تعيين كلمة المرور: {otp_code}\nصالح لمدة {self.OTP_EXPIRY_MINUTES} دقائق.',
+                 'phone_verification': f'رمز التحقق: {otp_code}\nصالح لمدة {self.OTP_EXPIRY_MINUTES} دقائق.',
+                 'default': f'رمز التحقق: {otp_code}\nصالح لمدة {self.OTP_EXPIRY_MINUTES} دقائق.'
             }
             
             message = purpose_messages.get(purpose, purpose_messages['default'])

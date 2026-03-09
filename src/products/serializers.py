@@ -12,7 +12,7 @@ from .models import (
     PillItem,
     SpecialProduct,
     Product, ProductImage, Pill, Subject, Teacher,
-    PurchasedBook, PackageProduct
+    PurchasedBook, PackageProduct, BookPublishRequest
 )
 
 
@@ -119,6 +119,68 @@ class ProductImageBulkUploadSerializer(serializers.Serializer):
         child=serializers.ImageField(),
         allow_empty=False
     )
+
+
+class BookPublishRequestCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BookPublishRequest
+        fields = ['id', 'name', 'phone_number', 'bio', 'status', 'created_at']
+        read_only_fields = ['id', 'status', 'created_at']
+
+    def validate_name(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError('الاسم مطلوب')
+        return value
+
+    def validate_phone_number(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError('رقم الهاتف مطلوب')
+        return value
+
+    def validate_bio(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError('النبذة مطلوبة')
+        return value
+
+
+class AdminBookPublishRequestSerializer(serializers.ModelSerializer):
+    checked_by_name = serializers.SerializerMethodField()
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        model = BookPublishRequest
+        fields = [
+            'id', 'name', 'phone_number', 'bio',
+            'status', 'status_display', 'notes',
+            'checked_at', 'checked_by', 'checked_by_name',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'checked_at', 'checked_by', 'checked_by_name', 'created_at', 'updated_at']
+
+    def get_checked_by_name(self, obj):
+        if not obj.checked_by:
+            return None
+        return obj.checked_by.name or obj.checked_by.username
+
+    def update(self, instance, validated_data):
+        status_value = validated_data.get('status', instance.status)
+        request = self.context.get('request')
+
+        if status_value in ['accepted', 'refused'] and instance.status != status_value:
+            instance.checked_at = timezone.now()
+            instance.checked_by = request.user if request and request.user.is_authenticated else None
+        elif status_value == 'pending':
+            instance.checked_at = None
+            instance.checked_by = None
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+
+        instance.save()
+        return instance
 
 
 class ProductS3UploadSerializer(serializers.Serializer):
@@ -1107,6 +1169,7 @@ class PillCreateSerializer(serializers.ModelSerializer):
         return representation
 
 class CouponDiscountSerializer(serializers.ModelSerializer):
+    coupon = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     is_active = serializers.SerializerMethodField()
     is_available = serializers.SerializerMethodField()
 
@@ -1118,8 +1181,39 @@ class CouponDiscountSerializer(serializers.ModelSerializer):
             'is_available'
         ]
 
+    def validate_coupon(self, value):
+        if value is None:
+            return value
+
+        value = value.strip()
+        if not value:
+            return None
+
+        queryset = CouponDiscount.objects.filter(coupon__iexact=value)
+        if self.instance is not None:
+            queryset = queryset.exclude(pk=self.instance.pk)
+
+        if queryset.exists():
+            raise serializers.ValidationError('يوجد كوبون بنفس الكود بالفعل.')
+
+        return value
+
+    def create(self, validated_data):
+        coupon_value = validated_data.get('coupon')
+        if not coupon_value:
+            validated_data.pop('coupon', None)
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        coupon_value = validated_data.get('coupon', serializers.empty)
+        if coupon_value is None:
+            validated_data.pop('coupon', None)
+        return super().update(instance, validated_data)
+
     def get_is_active(self, obj):
         now = timezone.now()
+        if not obj.coupon_start or not obj.coupon_end:
+            return False
         return obj.coupon_start <= now <= obj.coupon_end
 
     def get_is_available(self, obj):
