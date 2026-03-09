@@ -66,6 +66,12 @@ PURCHASE_METHOD_CHOICES = [
     ('admin_added', 'تعيين يدوي'),
 ]
 
+BOOK_PUBLISH_REQUEST_STATUS_CHOICES = [
+    ('pending', 'Pending'),
+    ('accepted', 'Accepted'),
+    ('refused', 'Refused'),
+]
+
 def generate_pill_number():
     """Generate a unique 20-digit pill number."""
     while True:
@@ -255,6 +261,35 @@ class Product(models.Model):
 
     class Meta:
         ordering = ['-date_added']
+
+
+class BookPublishRequest(models.Model):
+    name = models.CharField(max_length=200)
+    phone_number = models.CharField(max_length=30, db_index=True)
+    bio = models.TextField(max_length=2000)
+    status = models.CharField(
+        max_length=20,
+        choices=BOOK_PUBLISH_REQUEST_STATUS_CHOICES,
+        default='pending',
+        db_index=True,
+    )
+    notes = models.TextField(null=True, blank=True)
+    checked_at = models.DateTimeField(null=True, blank=True)
+    checked_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='checked_book_publish_requests'
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.name} - {self.phone_number}"
         
 class PackageProduct(models.Model):
     """Model to store the relationship between package products and their related book products."""
