@@ -24,10 +24,11 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.views import APIView
 from .serializers import *
 from .filters import CouponDiscountFilter, PillFilter, ProductFilter, PurchasedBookFilter
+from .filters import CouponDiscountFilter, PillFilter, ProductFilter, PurchasedBookFilter, BookPublishRequestFilter
 from .models import (
     CouponDiscount,
     ProductImage, Product, Pill,
-    PurchasedBook, PillItem, Subject, Teacher
+    PurchasedBook, PillItem, Subject, Teacher, BookPublishRequest
 )
 from accounts.models import User
 from .permissions import IsOwner, IsOwnerOrReadOnly
@@ -185,6 +186,30 @@ class SpecialBestProductsView(APIView):
                 **product_data
             })
         return result
+
+
+class BookPublishRequestCreateView(generics.CreateAPIView):
+    queryset = BookPublishRequest.objects.all()
+    serializer_class = BookPublishRequestCreateSerializer
+    permission_classes = [AllowAny]
+
+
+class AdminBookPublishRequestListView(generics.ListAPIView):
+    queryset = BookPublishRequest.objects.select_related('checked_by').all()
+    serializer_class = AdminBookPublishRequestSerializer
+    permission_classes = [IsAdminUser]
+    filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter, OrderingFilter]
+    filterset_class = BookPublishRequestFilter
+    search_fields = ['name', 'phone_number', 'bio', 'notes']
+    ordering_fields = ['created_at', 'updated_at', 'checked_at', 'name', 'status']
+    ordering = ['-created_at']
+    pagination_class = CustomPageNumberPagination
+
+
+class AdminBookPublishRequestRetrieveUpdateView(generics.RetrieveUpdateAPIView):
+    queryset = BookPublishRequest.objects.select_related('checked_by').all()
+    serializer_class = AdminBookPublishRequestSerializer
+    permission_classes = [IsAdminUser]
 
 
 class TeacherProductsView(APIView):

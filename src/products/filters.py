@@ -1,5 +1,5 @@
 
-from .models import Pill, Product, ProductImage, CouponDiscount, PurchasedBook
+from .models import Pill, Product, ProductImage, CouponDiscount, PurchasedBook, BookPublishRequest
 from django_filters import rest_framework as filters
 from django.db.models import Q, F, FloatField, Case, When, Exists, OuterRef
 from django.utils import timezone
@@ -97,6 +97,15 @@ class PillFilter(filters.FilterSet):
     class Meta:
         model = Pill
         fields = ['status', 'user', 'pill_number']
+
+
+class BookPublishRequestFilter(filters.FilterSet):
+    start_date = filters.DateFilter(field_name='created_at', lookup_expr='date__gte', label='Start Date')
+    end_date = filters.DateFilter(field_name='created_at', lookup_expr='date__lte', label='End Date')
+
+    class Meta:
+        model = BookPublishRequest
+        fields = ['status', 'start_date', 'end_date']
 
 
 class PurchasedBookFilter(filters.FilterSet):

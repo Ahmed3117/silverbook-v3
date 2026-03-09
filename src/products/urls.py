@@ -38,6 +38,7 @@ urlpatterns = [
     path('products/best-sellers/', views.BestSellersView.as_view(), name='best-sellers'),
     path('products/frequently-bought-together/', views.FrequentlyBoughtTogetherView.as_view(), name='frequently-bought-together'),
     path('products/recommendations/', views.ProductRecommendationsView.as_view(), name='recommendations'),
+    path('publish-book-requests/', views.BookPublishRequestCreateView.as_view(), name='publish-book-request-create'),
 
     # Admin Endpoints
     path('dashboard/subjects/', views.SubjectListCreateView.as_view(), name='admin-subject-list-create'),
@@ -50,6 +51,8 @@ urlpatterns = [
     path('dashboard/products-breifed/', views.ProductListBreifedView.as_view(), name='admin-product-list-breifed'),
     path('dashboard/products-simple/', views.ProductSimpleListView.as_view(), name='admin-product-simple-list'),
     path('dashboard/products/<int:pk>/', views.ProductRetrieveUpdateDestroyView.as_view(), name='admin-product-detail'),
+    path('dashboard/publish-book-requests/', views.AdminBookPublishRequestListView.as_view(), name='admin-book-publish-request-list'),
+    path('dashboard/publish-book-requests/<int:pk>/', views.AdminBookPublishRequestRetrieveUpdateView.as_view(), name='admin-book-publish-request-detail'),
     path('api/generate-presigned-url/', views.GeneratePresignedUploadUrlView.as_view(), name='generate-presigned-url'),
     path('dashboard/product-images/', views.ProductImageListCreateView.as_view(), name='admin-product-image-list-create'),
     path('dashboard/product-images/bulk-upload/', views.ProductImageBulkCreateView.as_view(), name='admin-product-image-bulk-create'),
