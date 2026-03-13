@@ -1120,7 +1120,7 @@ def change_password(request):
 def create_admin_user(request):
     serializer = UserSerializer(data=request.data)
     if serializer.is_valid():
-        user = serializer.save(is_staff=True, is_superuser=True)
+        user = serializer.save(is_staff=True, is_superuser=False)
         refresh = RefreshToken.for_user(user)
         # Return a compact admin-shaped user object in the response
         from .serializers import AdminListUserSerializer
