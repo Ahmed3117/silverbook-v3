@@ -12,7 +12,7 @@ class ProductFilter(filters.FilterSet):
 
     class Meta:
         model = Product
-        fields = ['subject', 'teacher', 'year', 'type']
+        fields = ['subject', 'teacher', 'year', 'type', 'is_downloadable']
 
     def filter_by_discounted_price_min(self, queryset, name, value):
         now = timezone.now()
