@@ -23,12 +23,12 @@ from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.views import APIView
 from .serializers import *
-from .filters import CouponDiscountFilter, PillFilter, ProductFilter, PurchasedBookFilter
-from .filters import CouponDiscountFilter, PillFilter, ProductFilter, PurchasedBookFilter, BookPublishRequestFilter
+from .filters import CouponDiscountFilter, PillFilter, ProductFilter, PurchasedBookFilter, BookPublishRequestFilter, PromoCodeFilter, PromoCodeRedemptionFilter
 from .models import (
     CouponDiscount,
     ProductImage, Product, Pill,
-    PurchasedBook, PillItem, Subject, Teacher, BookPublishRequest
+    PurchasedBook, PillItem, Subject, Teacher, BookPublishRequest,
+    PromoCode, PromoCodeRedemption,
 )
 from accounts.models import User
 from .permissions import IsOwner, IsOwnerOrReadOnly
@@ -2441,4 +2441,56 @@ class PackageBooksListView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+
+# ─── Promo Code Views ─────────────────────────────────────────────────────────
+
+class PromoCodeListCreateView(generics.ListCreateAPIView):
+    """Dashboard: list all promo codes with filters, or create a new one."""
+    queryset = PromoCode.objects.prefetch_related('books').select_related('created_by').all()
+    serializer_class = PromoCodeSerializer
+    permission_classes = [IsAdminUser]
+    filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter, OrderingFilter]
+    filterset_class = PromoCodeFilter
+    search_fields = ['code']
+    ordering_fields = ['created_at', 'valid_from', 'valid_until', 'code']
+    ordering = ['-created_at']
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+
+class PromoCodeRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
+    """Dashboard: retrieve, update or delete a promo code."""
+    queryset = PromoCode.objects.prefetch_related('books').select_related('created_by').all()
+    serializer_class = PromoCodeSerializer
+    permission_classes = [IsAdminUser]
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        code = instance.code
+        self.perform_destroy(instance)
+        return Response({'detail': f'تم حذف الكود {code} بنجاح.'}, status=status.HTTP_204_NO_CONTENT)
+
+
+class PromoCodeRedemptionListView(generics.ListAPIView):
+    """Dashboard: list all redemptions with filters."""
+    queryset = PromoCodeRedemption.objects.select_related('promo_code', 'user').all()
+    serializer_class = PromoCodeRedemptionSerializer
+    permission_classes = [IsAdminUser]
+    filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter, OrderingFilter]
+    filterset_class = PromoCodeRedemptionFilter
+    search_fields = ['promo_code__code', 'user__username', 'user__name']
+    ordering_fields = ['redeemed_at']
+    ordering = ['-redeemed_at']
+
+
+class RedeemPromoCodeView(APIView):
+    """Student endpoint: redeem a promo code to get books."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        serializer = RedeemPromoCodeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        result = serializer.save(user=request.user)
+        return Response(result, status=status.HTTP_200_OK)
 
