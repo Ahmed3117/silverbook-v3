@@ -95,6 +95,14 @@ urlpatterns = [
     path('dashboard/packages/packages/<int:package_id>/books/', views.PackageBooksListView.as_view(), name='package-books-list'),
     path('dashboard/packages/products/<int:product_id>/remove-all-relationships/', views.RemoveAllProductRelationshipsView.as_view(), name='remove-all-product-relationships'),
 
+    # Promo Code Endpoints (Dashboard)
+    path('dashboard/promo-codes/', views.PromoCodeListCreateView.as_view(), name='admin-promo-code-list-create'),
+    path('dashboard/promo-codes/<int:pk>/', views.PromoCodeRetrieveUpdateDestroyView.as_view(), name='admin-promo-code-detail'),
+    path('dashboard/promo-code-redemptions/', views.PromoCodeRedemptionListView.as_view(), name='admin-promo-code-redemption-list'),
+
+    # Promo Code Endpoints (Student)
+    path('promo-codes/redeem/', views.RedeemPromoCodeView.as_view(), name='promo-code-redeem'),
+
     # Payment Endpoints (Fawaterak, Shakeout, EasyPay)
     path('api/payment/create/<int:pill_id>/', payment_views.create_payment_view, name='api_create_payment'),
     path('api/payment/webhook/fawaterak/', payment_views.fawaterak_webhook, name='api_fawaterak_webhook'),

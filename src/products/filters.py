@@ -1,5 +1,5 @@
 
-from .models import Pill, Product, ProductImage, CouponDiscount, PurchasedBook, BookPublishRequest
+from .models import Pill, Product, ProductImage, CouponDiscount, PurchasedBook, BookPublishRequest, PromoCode, PromoCodeRedemption
 from django_filters import rest_framework as filters
 from django.db.models import Q, F, FloatField, Case, When, Exists, OuterRef
 from django.utils import timezone
@@ -134,6 +134,56 @@ class PurchasedBookFilter(filters.FilterSet):
         elif value.lower() == 'student':
             return queryset.filter(pill__isnull=False)
         return queryset
-        
-        
-        
+
+
+class PromoCodeFilter(filters.FilterSet):
+    code = filters.CharFilter(field_name='code', lookup_expr='icontains')
+    code_type = filters.ChoiceFilter(choices=[('general', 'General'), ('specific', 'Specific Books')])
+    is_active = filters.BooleanFilter(field_name='is_active')
+    is_valid = filters.BooleanFilter(method='filter_is_valid')
+    book_id = filters.NumberFilter(method='filter_by_book')
+    created_by = filters.NumberFilter(field_name='created_by__id')
+    start_date = filters.DateFilter(field_name='created_at', lookup_expr='date__gte')
+    end_date = filters.DateFilter(field_name='created_at', lookup_expr='date__lte')
+    valid_from_after = filters.DateTimeFilter(field_name='valid_from', lookup_expr='gte')
+    valid_from_before = filters.DateTimeFilter(field_name='valid_from', lookup_expr='lte')
+    valid_until_after = filters.DateTimeFilter(field_name='valid_until', lookup_expr='gte')
+    valid_until_before = filters.DateTimeFilter(field_name='valid_until', lookup_expr='lte')
+
+    class Meta:
+        model = PromoCode
+        fields = ['code', 'code_type', 'is_active']
+
+    def filter_is_valid(self, queryset, name, value):
+        now = timezone.now()
+        if value:
+            return queryset.filter(
+                is_active=True,
+            ).filter(
+                Q(valid_from__isnull=True) | Q(valid_from__lte=now)
+            ).filter(
+                Q(valid_until__isnull=True) | Q(valid_until__gte=now)
+            )
+        else:
+            return queryset.filter(
+                Q(is_active=False) |
+                Q(valid_from__gt=now) |
+                Q(valid_until__lt=now)
+            )
+
+    def filter_by_book(self, queryset, name, value):
+        return queryset.filter(books__id=value).distinct()
+
+
+class PromoCodeRedemptionFilter(filters.FilterSet):
+    promo_code_id = filters.NumberFilter(field_name='promo_code__id')
+    promo_code = filters.CharFilter(field_name='promo_code__code', lookup_expr='icontains')
+    user_id = filters.NumberFilter(field_name='user__id')
+    username = filters.CharFilter(field_name='user__username', lookup_expr='icontains')
+    user_name = filters.CharFilter(field_name='user__name', lookup_expr='icontains')
+    start_date = filters.DateFilter(field_name='redeemed_at', lookup_expr='date__gte')
+    end_date = filters.DateFilter(field_name='redeemed_at', lookup_expr='date__lte')
+
+    class Meta:
+        model = PromoCodeRedemption
+        fields = ['promo_code_id', 'user_id']
