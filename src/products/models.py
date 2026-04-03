@@ -64,6 +64,7 @@ PURCHASE_METHOD_CHOICES = [
     ('user_paid', 'مدفوع'),
     ('free', 'مجاني'),
     ('admin_added', 'تعيين يدوي'),
+    ('promo_code', 'كود ترويجي'),
 ]
 
 BOOK_PUBLISH_REQUEST_STATUS_CHOICES = [
@@ -732,3 +733,111 @@ def prepare_whatsapp_message(phone_number, pill):
         message=message
     )
     return response
+
+
+PROMO_CODE_TYPE_CHOICES = [
+    ('general', 'General'),
+    ('specific', 'Specific Books'),
+]
+
+
+def generate_promo_code():
+    """Generate a unique 10-digit numeric promo code."""
+    while True:
+        code = ''.join(random.choices(string.digits, k=10))
+        if not PromoCode.objects.filter(code=code).exists():
+            return code
+
+
+class PromoCode(models.Model):
+    code = models.CharField(max_length=20, unique=True, db_index=True)
+    code_type = models.CharField(
+        max_length=10,
+        choices=PROMO_CODE_TYPE_CHOICES,
+        default='general',
+        db_index=True,
+    )
+    books = models.ManyToManyField(
+        Product,
+        blank=True,
+        related_name='promo_codes',
+        help_text="Books this code gives access to. Only relevant when code_type is 'specific'.",
+    )
+    is_active = models.BooleanField(default=True, db_index=True)
+    valid_from = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Start of validity window. Leave blank for no start restriction.",
+    )
+    valid_until = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="End of validity window. Leave blank for no end restriction.",
+    )
+    max_uses = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Maximum number of times this code can be redeemed. Leave blank for unlimited.",
+    )
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='created_promo_codes',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Promo Code'
+        verbose_name_plural = 'Promo Codes'
+
+    def __str__(self):
+        return self.code
+
+    def save(self, *args, **kwargs):
+        if not self.code:
+            self.code = generate_promo_code()
+        super().save(*args, **kwargs)
+
+    @property
+    def redemptions_count(self):
+        return self.redemptions.count()
+
+    @property
+    def is_valid(self):
+        """Check whether the code is currently usable."""
+        now = timezone.now()
+        if not self.is_active:
+            return False
+        if self.valid_from and now < self.valid_from:
+            return False
+        if self.valid_until and now > self.valid_until:
+            return False
+        if self.max_uses is not None and self.redemptions_count >= self.max_uses:
+            return False
+        return True
+
+
+class PromoCodeRedemption(models.Model):
+    promo_code = models.ForeignKey(
+        PromoCode,
+        on_delete=models.CASCADE,
+        related_name='redemptions',
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='promo_code_redemptions',
+    )
+    redeemed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-redeemed_at']
+        verbose_name = 'Promo Code Redemption'
+        verbose_name_plural = 'Promo Code Redemptions'
+
+    def __str__(self):
+        return f"{self.promo_code.code} redeemed by {self.user}"

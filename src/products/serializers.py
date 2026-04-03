@@ -1981,6 +1981,162 @@ class AddBooksToPackageSerializer(serializers.Serializer):
         return value
 
 
+# ─── Promo Code Serializers ───────────────────────────────────────────────────
+
+from .models import PromoCode, PromoCodeRedemption
+
+
+class PromoCodeBookSerializer(serializers.ModelSerializer):
+    """Minimal book info nested inside a promo code."""
+    class Meta:
+        model = Product
+        fields = ['id', 'product_number', 'name', 'type', 'year']
+
+
+class PromoCodeSerializer(serializers.ModelSerializer):
+    books = PromoCodeBookSerializer(many=True, read_only=True)
+    book_ids = serializers.PrimaryKeyRelatedField(
+        queryset=Product.objects.all(),
+        many=True,
+        write_only=True,
+        source='books',
+        required=False,
+    )
+    redemptions_count = serializers.SerializerMethodField()
+    is_valid = serializers.SerializerMethodField()
+    created_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PromoCode
+        fields = [
+            'id', 'code', 'code_type',
+            'books', 'book_ids',
+            'is_active', 'valid_from', 'valid_until',
+            'max_uses', 'redemptions_count', 'is_valid',
+            'created_by', 'created_by_name',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'code', 'created_at', 'updated_at', 'created_by']
+
+    def get_redemptions_count(self, obj):
+        return obj.redemptions_count
+
+    def get_is_valid(self, obj):
+        return obj.is_valid
+
+    def get_created_by_name(self, obj):
+        if obj.created_by:
+            return obj.created_by.name or obj.created_by.username
+        return None
+
+    def validate(self, data):
+        code_type = data.get('code_type', getattr(self.instance, 'code_type', 'general'))
+        # Only enforce book requirement when books are explicitly part of this request
+        books_in_payload = 'books' in data
+        books = data.get('books', [])
+
+        if code_type == 'specific' and books_in_payload and not books:
+            raise serializers.ValidationError(
+                {'book_ids': 'يجب تحديد كتاب واحد على الأقل للكود الخاص.'}
+            )
+        # On create (no instance), specific type must have books
+        if code_type == 'specific' and self.instance is None and not books:
+            raise serializers.ValidationError(
+                {'book_ids': 'يجب تحديد كتاب واحد على الأقل للكود الخاص.'}
+            )
+        if code_type == 'general' and books:
+            # clear books for general codes
+            data['books'] = []
+        return data
+
+    def create(self, validated_data):
+        books = validated_data.pop('books', [])
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            validated_data['created_by'] = request.user
+        promo = PromoCode.objects.create(**validated_data)
+        if books:
+            promo.books.set(books)
+        return promo
+
+    def update(self, instance, validated_data):
+        books = validated_data.pop('books', None)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        if books is not None:
+            instance.books.set(books)
+        return instance
+
+
+class PromoCodeRedemptionSerializer(serializers.ModelSerializer):
+    user_name = serializers.SerializerMethodField()
+    user_username = serializers.SerializerMethodField()
+    promo_code_str = serializers.CharField(source='promo_code.code', read_only=True)
+
+    class Meta:
+        model = PromoCodeRedemption
+        fields = ['id', 'promo_code', 'promo_code_str', 'user', 'user_name', 'user_username', 'redeemed_at']
+        read_only_fields = ['id', 'redeemed_at']
+
+    def get_user_name(self, obj):
+        return obj.user.name if obj.user else None
+
+    def get_user_username(self, obj):
+        return obj.user.username if obj.user else None
+
+
+class RedeemPromoCodeSerializer(serializers.Serializer):
+    """Used by the student to redeem a promo code and get books."""
+    code = serializers.CharField(max_length=20)
+
+    def validate_code(self, value):
+        try:
+            promo = PromoCode.objects.prefetch_related('books').get(code=value.strip().upper())
+        except PromoCode.DoesNotExist:
+            raise serializers.ValidationError('الكود غير موجود.')
+        if not promo.is_valid:
+            raise serializers.ValidationError('الكود غير صالح أو منتهي الصلاحية.')
+        self._promo = promo
+        return value
+
+    def save(self, user):
+        promo = self._promo
+        # Prevent double redemption
+        if PromoCodeRedemption.objects.filter(promo_code=promo, user=user).exists():
+            raise serializers.ValidationError({'code': 'لقد استخدمت هذا الكود من قبل.'})
+
+        if promo.code_type == 'general':
+            books = list(Product.objects.filter(type='book', is_available=True))
+        else:
+            books = list(promo.books.all())
+
+        # Grant books
+        granted = []
+        for book in books:
+            pb, created = PurchasedBook.objects.get_or_create(
+                user=user,
+                product=book,
+                defaults={
+                    'purchase_method': 'promo_code',
+                    'product_name': book.name,
+                    'price_at_sale': 0,
+                }
+            )
+            if created:
+                granted.append(book)
+
+        # Record redemption
+        PromoCodeRedemption.objects.create(promo_code=promo, user=user)
+
+        return {
+            'promo_code': promo.code,
+            'code_type': promo.code_type,
+            'granted_books': PromoCodeBookSerializer(granted, many=True).data,
+            'already_owned_count': len(books) - len(granted),
+        }
+
+
 
 
 
