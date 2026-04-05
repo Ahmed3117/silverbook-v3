@@ -59,3 +59,4 @@ accounts/management/
 accounts/tests_security.py
 docs/
 *.json
+products/tests.py
