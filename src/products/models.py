@@ -761,11 +761,20 @@ def generate_promo_codes_bulk(count):
 
 class PromoCode(models.Model):
     code = models.CharField(max_length=20, unique=True, db_index=True)
+    title = models.CharField(
+        max_length=200,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Batch label assigned at bulk-create time. All codes in the same batch share the same title.",
+    )
     book = models.ForeignKey(
         Product,
         on_delete=models.CASCADE,
         related_name='promo_codes',
-        help_text="The book this code grants access to.",
+        null=True,
+        blank=True,
+        help_text="The book this code grants access to. Null = general code (valid for any book).",
     )
     is_active = models.BooleanField(default=True, db_index=True)
     is_used = models.BooleanField(default=False, db_index=True)

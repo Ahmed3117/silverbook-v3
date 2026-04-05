@@ -2489,7 +2489,7 @@ class PromoCodeListView(generics.ListAPIView):
     permission_classes = [IsAdminUser]
     filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter, OrderingFilter]
     filterset_class = PromoCodeFilter
-    search_fields = ['code', 'book__name']
+    search_fields = ['code', 'title', 'book__name']
     ordering_fields = ['created_at', 'valid_from', 'valid_until', 'code', 'used_at']
     ordering = ['-created_at']
 
