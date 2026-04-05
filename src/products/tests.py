@@ -6,11 +6,14 @@ from rest_framework.test import APITestCase
 
 from accounts.models import User
 from .models import Subject, Teacher, Product, Pill, PillItem, PurchasedBook, PromoCode
+
+# Single placeholder used for every test user — not a real credential.
+_TP = 'Xy7@test#pass'   # noqa: S105  (test-only, not a secret)
 class PurchasedBookTests(APITestCase):
 	def setUp(self):
 		self.user = User.objects.create_user(
 			username='student',
-			password='pass1234',
+			password=_TP,
 			name='Student User'
 		)
 		self.client.force_authenticate(user=self.user)
@@ -182,12 +185,12 @@ class RatingTests(APITestCase):
 	def setUp(self):
 		self.user = User.objects.create_user(
 			username='reviewer',
-			password='pass1234',
+			password=_TP,
 			name='Reviewer'
 		)
 		self.other_user = User.objects.create_user(
 			username='reviewer2',
-			password='pass1234',
+			password=_TP,
 			name='Reviewer 2'
 		)
 		self.client.force_authenticate(user=self.user)
@@ -279,7 +282,7 @@ class RatingTests(APITestCase):
 		for idx in range(12):
 			user = User.objects.create_user(
 				username=f'bulk{idx}',
-				password='pass1234',
+				password=_TP,
 				name=f'Bulk User {idx}'
 			)
 			Rating.objects.create(
@@ -304,11 +307,11 @@ class PromoCodeAdminTests(APITestCase):
 
     def setUp(self):
         self.admin = User.objects.create_user(
-            username='admin', password='admin123', name='Admin User',
+            username='admin', password=_TP, name='Admin User',
             is_staff=True,
         )
         self.student = User.objects.create_user(
-            username='student1', password='pass1234', name='Student One',
+            username='student1', password=_TP, name='Student One',
         )
         self.book = Product.objects.create(name='Chemistry 101', price=150)
         self.other_book = Product.objects.create(name='Physics 202', price=200)
@@ -530,10 +533,10 @@ class PromoCodeRedeemTests(APITestCase):
 
     def setUp(self):
         self.admin = User.objects.create_user(
-            username='admin2', password='admin123', name='Admin 2', is_staff=True,
+            username='admin2', password=_TP, name='Admin 2', is_staff=True,
         )
         self.student = User.objects.create_user(
-            username='student2', password='pass1234', name='Student Two',
+            username='student2', password=_TP, name='Student Two',
         )
         self.book = Product.objects.create(name='Biology 303', price=100)
         self.other_book = Product.objects.create(name='History 404', price=80)
@@ -617,7 +620,7 @@ class PromoCodeRedeemTests(APITestCase):
 
     def test_redeem_already_used_code(self):
         self._auth()
-        other_student = User.objects.create_user(username='s3', password='p')
+        other_student = User.objects.create_user(username='s3', password=_TP)
         self.valid_code.is_used = True
         self.valid_code.used_by = other_student
         self.valid_code.save()
