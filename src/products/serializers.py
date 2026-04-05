@@ -2001,9 +2001,11 @@ class PromoCodeSerializer(serializers.ModelSerializer):
         queryset=Product.objects.all(),
         write_only=True,
         source='book',
-        required=True,
+        required=False,
+        allow_null=True,
     )
     is_valid = serializers.SerializerMethodField()
+    is_general = serializers.SerializerMethodField()
     created_by_name = serializers.SerializerMethodField()
     used_by_name = serializers.SerializerMethodField()
     used_by_username = serializers.SerializerMethodField()
@@ -2011,9 +2013,9 @@ class PromoCodeSerializer(serializers.ModelSerializer):
     class Meta:
         model = PromoCode
         fields = [
-            'id', 'code',
+            'id', 'code', 'title',
             'book', 'book_id',
-            'is_active', 'is_used', 'is_valid',
+            'is_active', 'is_used', 'is_valid', 'is_general',
             'valid_from', 'valid_until',
             'used_by', 'used_by_name', 'used_by_username', 'used_at',
             'created_by', 'created_by_name',
@@ -2026,6 +2028,9 @@ class PromoCodeSerializer(serializers.ModelSerializer):
 
     def get_is_valid(self, obj):
         return obj.is_valid
+
+    def get_is_general(self, obj):
+        return obj.book_id is None
 
     def get_created_by_name(self, obj):
         if obj.created_by:
@@ -2042,15 +2047,24 @@ class PromoCodeSerializer(serializers.ModelSerializer):
 
 
 class PromoCodeBulkCreateSerializer(serializers.Serializer):
-    """Admin: generate multiple single-use codes for one book in a single request."""
+    """Admin: generate multiple single-use codes for one book (or general) in a single request."""
+    title = serializers.CharField(max_length=200)
     number_of_codes = serializers.IntegerField(min_value=1, max_value=1000)
     book_id = serializers.PrimaryKeyRelatedField(
         queryset=Product.objects.all(),
         source='book',
+        required=False,
+        allow_null=True,
+        default=None,
     )
     is_active = serializers.BooleanField(default=True)
     valid_from = serializers.DateTimeField(required=False, allow_null=True, default=None)
     valid_until = serializers.DateTimeField(required=False, allow_null=True, default=None)
+
+    def validate_title(self, value):
+        if PromoCode.objects.filter(title=value).exists():
+            raise serializers.ValidationError('A batch with this title already exists.')
+        return value
 
     def create(self, validated_data):
         count = validated_data.pop('number_of_codes')
@@ -2087,7 +2101,8 @@ class RedeemPromoCodeSerializer(serializers.Serializer):
             raise serializers.ValidationError({'code': 'تم استخدام هذا الكود من قبل.'})
         if not promo.is_valid:
             raise serializers.ValidationError({'code': 'الكود غير صالح أو منتهي الصلاحية.'})
-        if promo.book_id != product.id:
+        # General codes (book=None) are valid for any book; specific codes must match.
+        if promo.book_id is not None and promo.book_id != product.id:
             raise serializers.ValidationError({'code': 'هذا الكود غير مخصص لهذا الكتاب.'})
         self._promo = promo
         self._product = product

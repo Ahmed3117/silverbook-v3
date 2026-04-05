@@ -138,6 +138,8 @@ class PurchasedBookFilter(filters.FilterSet):
 
 class PromoCodeFilter(filters.FilterSet):
     code = filters.CharFilter(field_name='code', lookup_expr='icontains')
+    title = filters.CharFilter(field_name='title', lookup_expr='icontains')
+    is_general = filters.BooleanFilter(method='filter_is_general')
     book_id = filters.NumberFilter(field_name='book__id')
     book_name = filters.CharFilter(field_name='book__name', lookup_expr='icontains')
     is_active = filters.BooleanFilter(field_name='is_active')
@@ -153,6 +155,11 @@ class PromoCodeFilter(filters.FilterSet):
     class Meta:
         model = PromoCode
         fields = ['code', 'is_active', 'is_used']
+
+    def filter_is_general(self, queryset, name, value):
+        if value:
+            return queryset.filter(book__isnull=True)
+        return queryset.filter(book__isnull=False)
 
     def filter_is_valid(self, queryset, name, value):
         now = timezone.now()
