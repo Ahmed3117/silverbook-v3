@@ -1,9 +1,11 @@
 from django.urls import reverse
+from django.utils import timezone
+from datetime import timedelta
 from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import User
-from .models import Category, Subject, Teacher, Product, Pill, PillItem, PurchasedBook, Rating
+from .models import Subject, Teacher, Product, Pill, PillItem, PurchasedBook, PromoCode
 class PurchasedBookTests(APITestCase):
 	def setUp(self):
 		self.user = User.objects.create_user(
@@ -295,3 +297,400 @@ class RatingTests(APITestCase):
 		self.assertEqual(response.data['pagination']['total_pages'], 3)
 		self.assertEqual(response.data['pagination']['page_size'], 5)
 		self.assertEqual(len(response.data['ratings']), 5)
+
+
+class PromoCodeAdminTests(APITestCase):
+    """Tests for admin promo code management endpoints."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            username='admin', password='admin123', name='Admin User',
+            is_staff=True,
+        )
+        self.student = User.objects.create_user(
+            username='student1', password='pass1234', name='Student One',
+        )
+        self.book = Product.objects.create(name='Chemistry 101', price=150)
+        self.other_book = Product.objects.create(name='Physics 202', price=200)
+
+        # Three codes: two for self.book, one for self.other_book
+        self.code_a = PromoCode.objects.create(code='1111111111', book=self.book, created_by=self.admin)
+        self.code_b = PromoCode.objects.create(code='2222222222', book=self.book, created_by=self.admin)
+        self.code_other = PromoCode.objects.create(code='3333333333', book=self.other_book, created_by=self.admin)
+
+        self.list_url = reverse('products:admin-promo-code-list')
+        self.bulk_url = reverse('products:admin-promo-code-bulk-create')
+        self.stats_url = reverse('products:admin-promo-code-book-stats')
+
+    def _admin_auth(self):
+        self.client.force_authenticate(user=self.admin)
+
+    def _student_auth(self):
+        self.client.force_authenticate(user=self.student)
+
+    # ── list ───────────────────────────────────────────────────────────────
+
+    def test_list_requires_admin(self):
+        self._student_auth()
+        resp = self.client.get(self.list_url)
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_list_unauthenticated(self):
+        resp = self.client.get(self.list_url)
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_list_returns_all_codes(self):
+        self._admin_auth()
+        resp = self.client.get(self.list_url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data['count'], 3)
+
+    def test_filter_by_book_id(self):
+        self._admin_auth()
+        resp = self.client.get(self.list_url, {'book_id': self.book.id})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data['count'], 2)
+        for item in resp.data['results']:
+            self.assertEqual(item['book']['id'], self.book.id)
+
+    def test_filter_by_is_used_false(self):
+        self._admin_auth()
+        # Mark one code as used
+        self.code_a.is_used = True
+        self.code_a.used_by = self.student
+        self.code_a.save()
+        resp = self.client.get(self.list_url, {'is_used': 'false'})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data['count'], 2)
+
+    def test_filter_by_is_used_true(self):
+        self._admin_auth()
+        self.code_a.is_used = True
+        self.code_a.used_by = self.student
+        self.code_a.save()
+        resp = self.client.get(self.list_url, {'is_used': 'true'})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data['count'], 1)
+        self.assertEqual(resp.data['results'][0]['code'], '1111111111')
+
+    def test_filter_by_is_active(self):
+        self._admin_auth()
+        self.code_a.is_active = False
+        self.code_a.save()
+        resp = self.client.get(self.list_url, {'is_active': 'false'})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data['count'], 1)
+
+    def test_filter_is_valid_true(self):
+        self._admin_auth()
+        # Deactivate one code — only 2 valid remain
+        self.code_a.is_active = False
+        self.code_a.save()
+        resp = self.client.get(self.list_url, {'is_valid': 'true'})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data['count'], 2)
+
+    def test_search_by_code_partial(self):
+        self._admin_auth()
+        resp = self.client.get(self.list_url, {'search': '1111'})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data['count'], 1)
+        self.assertEqual(resp.data['results'][0]['code'], '1111111111')
+
+    # ── bulk create ────────────────────────────────────────────────────────
+
+    def test_bulk_create_requires_admin(self):
+        self._student_auth()
+        resp = self.client.post(self.bulk_url, {'book_id': self.book.id, 'number_of_codes': 5}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_bulk_create_returns_correct_count(self):
+        self._admin_auth()
+        resp = self.client.post(self.bulk_url, {'book_id': self.book.id, 'number_of_codes': 10}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(len(resp.data), 10)
+
+    def test_bulk_create_codes_are_unique(self):
+        self._admin_auth()
+        resp = self.client.post(self.bulk_url, {'book_id': self.book.id, 'number_of_codes': 20}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        codes = [item['code'] for item in resp.data]
+        self.assertEqual(len(codes), len(set(codes)))
+
+    def test_bulk_create_codes_all_for_correct_book(self):
+        self._admin_auth()
+        resp = self.client.post(self.bulk_url, {'book_id': self.book.id, 'number_of_codes': 5}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        for item in resp.data:
+            self.assertEqual(item['book']['id'], self.book.id)
+
+    def test_bulk_create_rejects_zero_count(self):
+        self._admin_auth()
+        resp = self.client.post(self.bulk_url, {'book_id': self.book.id, 'number_of_codes': 0}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_bulk_create_rejects_over_1000(self):
+        self._admin_auth()
+        resp = self.client.post(self.bulk_url, {'book_id': self.book.id, 'number_of_codes': 1001}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_bulk_create_with_validity_dates(self):
+        self._admin_auth()
+        valid_from = (timezone.now() + timedelta(days=1)).isoformat()
+        valid_until = (timezone.now() + timedelta(days=30)).isoformat()
+        resp = self.client.post(self.bulk_url, {
+            'book_id': self.book.id,
+            'number_of_codes': 3,
+            'is_active': True,
+            'valid_from': valid_from,
+            'valid_until': valid_until,
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(len(resp.data), 3)
+        for item in resp.data:
+            self.assertIsNotNone(item['valid_from'])
+            self.assertIsNotNone(item['valid_until'])
+
+    def test_bulk_create_invalid_book_id(self):
+        self._admin_auth()
+        resp = self.client.post(self.bulk_url, {'book_id': 99999, 'number_of_codes': 5}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    # ── book stats ─────────────────────────────────────────────────────────
+
+    def test_book_stats_requires_admin(self):
+        self._student_auth()
+        resp = self.client.get(self.stats_url)
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_book_stats_total_counts(self):
+        self._admin_auth()
+        resp = self.client.get(self.stats_url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        data = {row['id']: row for row in resp.data}
+        self.assertEqual(data[self.book.id]['total_codes'], 2)
+        self.assertEqual(data[self.other_book.id]['total_codes'], 1)
+
+    def test_book_stats_used_codes(self):
+        self._admin_auth()
+        self.code_a.is_used = True
+        self.code_a.save()
+        resp = self.client.get(self.stats_url)
+        data = {row['id']: row for row in resp.data}
+        self.assertEqual(data[self.book.id]['used_codes'], 1)
+        self.assertEqual(data[self.book.id]['available_codes'], 1)
+
+    # ── retrieve / update / delete ─────────────────────────────────────────
+
+    def test_retrieve_single_code(self):
+        self._admin_auth()
+        url = reverse('products:admin-promo-code-detail', args=[self.code_a.id])
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data['code'], '1111111111')
+        self.assertIn('book', resp.data)
+        self.assertFalse(resp.data['is_used'])
+
+    def test_patch_deactivate_code(self):
+        self._admin_auth()
+        url = reverse('products:admin-promo-code-detail', args=[self.code_a.id])
+        resp = self.client.patch(url, {'is_active': False}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertFalse(resp.data['is_active'])
+        self.code_a.refresh_from_db()
+        self.assertFalse(self.code_a.is_active)
+
+    def test_patch_does_not_allow_setting_is_used(self):
+        """is_used is read-only; admin cannot flip it directly."""
+        self._admin_auth()
+        url = reverse('products:admin-promo-code-detail', args=[self.code_a.id])
+        # should be silently ignored or still return 200, but is_used stays False
+        resp = self.client.patch(url, {'is_used': True}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.code_a.refresh_from_db()
+        self.assertFalse(self.code_a.is_used)
+
+    def test_delete_code(self):
+        self._admin_auth()
+        url = reverse('products:admin-promo-code-detail', args=[self.code_a.id])
+        resp = self.client.delete(url)
+        self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertIn('detail', resp.data)
+        self.assertFalse(PromoCode.objects.filter(id=self.code_a.id).exists())
+
+    def test_retrieve_nonexistent_code(self):
+        self._admin_auth()
+        url = reverse('products:admin-promo-code-detail', args=[99999])
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class PromoCodeRedeemTests(APITestCase):
+    """Tests for the student promo code redemption endpoint."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            username='admin2', password='admin123', name='Admin 2', is_staff=True,
+        )
+        self.student = User.objects.create_user(
+            username='student2', password='pass1234', name='Student Two',
+        )
+        self.book = Product.objects.create(name='Biology 303', price=100)
+        self.other_book = Product.objects.create(name='History 404', price=80)
+
+        self.valid_code = PromoCode.objects.create(
+            code='9999999999', book=self.book, created_by=self.admin
+        )
+        self.redeem_url = reverse('products:promo-code-redeem')
+
+    def _auth(self):
+        self.client.force_authenticate(user=self.student)
+
+    # ── success ────────────────────────────────────────────────────────────
+
+    def test_redeem_valid_code_grants_book(self):
+        self._auth()
+        resp = self.client.post(self.redeem_url, {
+            'code': '9999999999',
+            'product_id': self.book.id,
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data['promo_code'], '9999999999')
+        self.assertFalse(resp.data['already_owned'])
+        # Book must be granted
+        self.assertTrue(PurchasedBook.objects.filter(user=self.student, product=self.book).exists())
+
+    def test_redeem_marks_code_as_used(self):
+        self._auth()
+        self.client.post(self.redeem_url, {
+            'code': '9999999999',
+            'product_id': self.book.id,
+        }, format='json')
+        self.valid_code.refresh_from_db()
+        self.assertTrue(self.valid_code.is_used)
+        self.assertEqual(self.valid_code.used_by, self.student)
+        self.assertIsNotNone(self.valid_code.used_at)
+
+    def test_redeem_already_owned_returns_flag(self):
+        self._auth()
+        # Grant the book first
+        PurchasedBook.objects.create(
+            user=self.student, product=self.book,
+            purchase_method='easypay', product_name=self.book.name, price_at_sale=0
+        )
+        resp = self.client.post(self.redeem_url, {
+            'code': '9999999999',
+            'product_id': self.book.id,
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertTrue(resp.data['already_owned'])
+
+    def test_redeem_purchase_method_is_promo_code(self):
+        self._auth()
+        self.client.post(self.redeem_url, {
+            'code': '9999999999',
+            'product_id': self.book.id,
+        }, format='json')
+        pb = PurchasedBook.objects.get(user=self.student, product=self.book)
+        self.assertEqual(pb.purchase_method, 'promo_code')
+        self.assertEqual(pb.price_at_sale, 0)
+
+    # ── auth ───────────────────────────────────────────────────────────────
+
+    def test_redeem_requires_authentication(self):
+        resp = self.client.post(self.redeem_url, {
+            'code': '9999999999',
+            'product_id': self.book.id,
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    # ── validation errors ─────────────────────────────────────────────────
+
+    def test_redeem_nonexistent_code(self):
+        self._auth()
+        resp = self.client.post(self.redeem_url, {
+            'code': '0000000000',
+            'product_id': self.book.id,
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('code', resp.data)
+
+    def test_redeem_already_used_code(self):
+        self._auth()
+        other_student = User.objects.create_user(username='s3', password='p')
+        self.valid_code.is_used = True
+        self.valid_code.used_by = other_student
+        self.valid_code.save()
+        resp = self.client.post(self.redeem_url, {
+            'code': '9999999999',
+            'product_id': self.book.id,
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('code', resp.data)
+
+    def test_redeem_inactive_code(self):
+        self._auth()
+        self.valid_code.is_active = False
+        self.valid_code.save()
+        resp = self.client.post(self.redeem_url, {
+            'code': '9999999999',
+            'product_id': self.book.id,
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('code', resp.data)
+
+    def test_redeem_expired_code(self):
+        self._auth()
+        self.valid_code.valid_until = timezone.now() - timedelta(days=1)
+        self.valid_code.save()
+        resp = self.client.post(self.redeem_url, {
+            'code': '9999999999',
+            'product_id': self.book.id,
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('code', resp.data)
+
+    def test_redeem_code_not_yet_valid(self):
+        self._auth()
+        self.valid_code.valid_from = timezone.now() + timedelta(days=5)
+        self.valid_code.save()
+        resp = self.client.post(self.redeem_url, {
+            'code': '9999999999',
+            'product_id': self.book.id,
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('code', resp.data)
+
+    def test_redeem_code_wrong_book(self):
+        self._auth()
+        resp = self.client.post(self.redeem_url, {
+            'code': '9999999999',
+            'product_id': self.other_book.id,  # code is for self.book, not this
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('code', resp.data)
+
+    def test_redeem_invalid_product_id(self):
+        self._auth()
+        resp = self.client.post(self.redeem_url, {
+            'code': '9999999999',
+            'product_id': 99999,
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_redeem_cannot_double_redeem(self):
+        """A code already consumed cannot be redeemed again."""
+        self._auth()
+        # First redemption
+        resp1 = self.client.post(self.redeem_url, {
+            'code': '9999999999',
+            'product_id': self.book.id,
+        }, format='json')
+        self.assertEqual(resp1.status_code, status.HTTP_200_OK)
+        # Second redemption attempt
+        resp2 = self.client.post(self.redeem_url, {
+            'code': '9999999999',
+            'product_id': self.book.id,
+        }, format='json')
+        self.assertEqual(resp2.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('code', resp2.data)
