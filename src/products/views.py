@@ -23,12 +23,12 @@ from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.views import APIView
 from .serializers import *
-from .filters import CouponDiscountFilter, PillFilter, ProductFilter, PurchasedBookFilter, BookPublishRequestFilter, PromoCodeFilter, PromoCodeRedemptionFilter
+from .filters import CouponDiscountFilter, PillFilter, ProductFilter, PurchasedBookFilter, BookPublishRequestFilter, PromoCodeFilter
 from .models import (
     CouponDiscount,
     ProductImage, Product, Pill,
     PurchasedBook, PillItem, Subject, Teacher, BookPublishRequest,
-    PromoCode, PromoCodeRedemption,
+    PromoCode,
 )
 from accounts.models import User
 from .permissions import IsOwner, IsOwnerOrReadOnly
@@ -117,7 +117,7 @@ class CombinedProductsView(APIView):
         return Response(data, status=status.HTTP_200_OK)
     
     def get_last_products(self, limit):
-        queryset = Product.objects.all().order_by('-id')[:limit]
+        queryset = Product.objects.all().order_by('order', '-id')[:limit]
         serializer = ProductSerializer(queryset, many=True, context={'request': self.request})
         return serializer.data
     
@@ -128,7 +128,7 @@ class CombinedProductsView(APIView):
     def get_year_products(self, year, limit):
         queryset = Product.objects.filter(
             year=year
-        ).order_by('-date_added')[:limit]
+        ).order_by('order', '-date_added')[:limit]
         serializer = ProductSerializer(queryset, many=True, context={'request': self.request})
         return serializer.data
 
@@ -243,7 +243,7 @@ class TeacherProductsView(APIView):
         if is_important:
             queryset = queryset.filter(is_important=True)
             
-        queryset = queryset.order_by('-date_added')[:limit]
+        queryset = queryset.order_by('order', '-date_added')[:limit]
         serializer = ProductSerializer(queryset, many=True, context={'request': self.request})
         return serializer.data
     
@@ -256,7 +256,7 @@ class TeacherProductsView(APIView):
         if is_important:
             queryset = queryset.filter(is_important=True)
             
-        queryset = queryset.order_by('-date_added')[:limit]
+        queryset = queryset.order_by('order', '-date_added')[:limit]
         serializer = ProductSerializer(queryset, many=True, context={'request': self.request})
         return serializer.data
 
@@ -1153,7 +1153,7 @@ class ProductListCreateView(generics.ListCreateAPIView):
     filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter, OrderingFilter]
     filterset_class = ProductFilter
     search_fields = ['name', 'description']
-    ordering_fields = ['id', 'name', 'price', 'discounted_price', 'date_added', 'year']
+    ordering_fields = ['id', 'name', 'price', 'discounted_price', 'date_added', 'year', 'order']
     ordering = ['-date_added']
     pagination_class = CustomPageNumberPagination
     permission_classes = [IsAdminUser]  # Changed for testing - change back to IsAdminUser in production
@@ -1164,9 +1164,47 @@ class ProductListBreifedView(generics.ListCreateAPIView):
     filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter, OrderingFilter]
     filterset_class = ProductFilter
     search_fields = ['name', 'description']
-    ordering_fields = ['id', 'name', 'price', 'discounted_price', 'date_added', 'year']
+    ordering_fields = ['id', 'name', 'price', 'discounted_price', 'date_added', 'year', 'order']
     ordering = ['-date_added']
     permission_classes = [IsAdminUser]
+
+
+class ProductReorderView(APIView):
+    """Admin: bulk-set the display order of products in one request."""
+    permission_classes = [IsAdminUser]
+
+    def post(self, request, *args, **kwargs):
+        items = request.data
+        if not isinstance(items, list) or len(items) == 0:
+            return Response(
+                {'detail': 'Expected a non-empty list of {"id": <int>, "order": <int>} objects.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        id_to_order = {}
+        for item in items:
+            try:
+                id_to_order[int(item['id'])] = int(item['order'])
+            except (KeyError, TypeError, ValueError):
+                return Response(
+                    {'detail': f'Invalid item: {item}. Each entry must have integer "id" and "order".'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        products = list(Product.objects.filter(pk__in=id_to_order.keys()))
+        found_ids = {p.pk for p in products}
+        missing = set(id_to_order.keys()) - found_ids
+        if missing:
+            return Response(
+                {'detail': f'Products not found: {sorted(missing)}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        for product in products:
+            product.order = id_to_order[product.pk]
+        Product.objects.bulk_update(products, ['order'])
+
+        return Response({'updated': len(products)}, status=status.HTTP_200_OK)
 
 class ProductSimpleListView(generics.ListAPIView):
     """Simple product list endpoint with minimal fields for dropdowns/selections"""
@@ -2444,24 +2482,34 @@ class PackageBooksListView(APIView):
 
 # ─── Promo Code Views ─────────────────────────────────────────────────────────
 
-class PromoCodeListCreateView(generics.ListCreateAPIView):
-    """Dashboard: list all promo codes with filters, or create a new one."""
-    queryset = PromoCode.objects.prefetch_related('books').select_related('created_by').all()
+class PromoCodeListView(generics.ListAPIView):
+    """Dashboard: list all promo codes with filters."""
+    queryset = PromoCode.objects.select_related('book', 'created_by', 'used_by').all()
     serializer_class = PromoCodeSerializer
     permission_classes = [IsAdminUser]
     filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter, OrderingFilter]
     filterset_class = PromoCodeFilter
-    search_fields = ['code']
-    ordering_fields = ['created_at', 'valid_from', 'valid_until', 'code']
+    search_fields = ['code', 'title', 'book__name']
+    ordering_fields = ['created_at', 'valid_from', 'valid_until', 'code', 'used_at']
     ordering = ['-created_at']
 
-    def perform_create(self, serializer):
-        serializer.save(created_by=self.request.user)
+
+class PromoCodeBulkCreateView(generics.CreateAPIView):
+    """Dashboard: bulk-generate promo codes for a single book."""
+    serializer_class = PromoCodeBulkCreateSerializer
+    permission_classes = [IsAdminUser]
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        created_codes = serializer.save()
+        out = PromoCodeSerializer(created_codes, many=True, context={'request': request})
+        return Response(out.data, status=status.HTTP_201_CREATED)
 
 
 class PromoCodeRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
     """Dashboard: retrieve, update or delete a promo code."""
-    queryset = PromoCode.objects.prefetch_related('books').select_related('created_by').all()
+    queryset = PromoCode.objects.select_related('book', 'created_by', 'used_by').all()
     serializer_class = PromoCodeSerializer
     permission_classes = [IsAdminUser]
 
@@ -2472,20 +2520,38 @@ class PromoCodeRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
         return Response({'detail': f'تم حذف الكود {code} بنجاح.'}, status=status.HTTP_204_NO_CONTENT)
 
 
-class PromoCodeRedemptionListView(generics.ListAPIView):
-    """Dashboard: list all redemptions with filters."""
-    queryset = PromoCodeRedemption.objects.select_related('promo_code', 'user').all()
-    serializer_class = PromoCodeRedemptionSerializer
+class PromoCodeBookStatsView(APIView):
+    """Dashboard: per-book summary of promo code usage."""
     permission_classes = [IsAdminUser]
-    filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter, OrderingFilter]
-    filterset_class = PromoCodeRedemptionFilter
-    search_fields = ['promo_code__code', 'user__username', 'user__name']
-    ordering_fields = ['redeemed_at']
-    ordering = ['-redeemed_at']
+
+    def get(self, request, *args, **kwargs):
+        from django.db.models import Count, Q
+        now = timezone.now()
+        qs = (
+            Product.objects.filter(promo_codes__isnull=False)
+            .annotate(
+                total_codes=Count('promo_codes'),
+                used_codes=Count('promo_codes', filter=Q(promo_codes__is_used=True)),
+                available_codes=Count(
+                    'promo_codes',
+                    filter=Q(
+                        promo_codes__is_used=False,
+                        promo_codes__is_active=True,
+                    ) & (
+                        Q(promo_codes__valid_from__isnull=True) | Q(promo_codes__valid_from__lte=now)
+                    ) & (
+                        Q(promo_codes__valid_until__isnull=True) | Q(promo_codes__valid_until__gte=now)
+                    ),
+                ),
+            )
+            .distinct()
+            .values('id', 'product_number', 'name', 'total_codes', 'used_codes', 'available_codes')
+        )
+        return Response(list(qs))
 
 
 class RedeemPromoCodeView(APIView):
-    """Student endpoint: redeem a promo code to get books."""
+    """Student: redeem a single-use promo code for a specific book."""
     permission_classes = [IsAuthenticated]
 
     def post(self, request, *args, **kwargs):

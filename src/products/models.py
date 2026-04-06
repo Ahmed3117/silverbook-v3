@@ -169,6 +169,11 @@ class Product(models.Model):
     )
 
     book_token = models.CharField(max_length=64, null=True, blank=True, editable=False, db_index=True)
+    order = models.PositiveIntegerField(
+        default=0,
+        db_index=True,
+        help_text="Display order (lower numbers appear first). Default 0 means no priority.",
+    )
     
     def get_current_discount(self):
         """Returns the active product discount"""
@@ -735,35 +740,44 @@ def prepare_whatsapp_message(phone_number, pill):
     return response
 
 
-PROMO_CODE_TYPE_CHOICES = [
-    ('general', 'General'),
-    ('specific', 'Specific Books'),
-]
-
-
 def generate_promo_code():
-    """Generate a unique 10-digit numeric promo code."""
+    """Generate a unique 10-digit numeric promo code (single)."""
     while True:
         code = ''.join(random.choices(string.digits, k=10))
         if not PromoCode.objects.filter(code=code).exists():
             return code
 
 
+def generate_promo_codes_bulk(count):
+    """Generate `count` unique 10-digit numeric promo codes without DB collisions."""
+    existing = set(PromoCode.objects.values_list('code', flat=True))
+    codes = set()
+    while len(codes) < count:
+        candidate = ''.join(random.choices(string.digits, k=10))
+        if candidate not in existing and candidate not in codes:
+            codes.add(candidate)
+    return list(codes)
+
+
 class PromoCode(models.Model):
     code = models.CharField(max_length=20, unique=True, db_index=True)
-    code_type = models.CharField(
-        max_length=10,
-        choices=PROMO_CODE_TYPE_CHOICES,
-        default='general',
-        db_index=True,
-    )
-    books = models.ManyToManyField(
-        Product,
+    title = models.CharField(
+        max_length=200,
+        null=True,
         blank=True,
+        db_index=True,
+        help_text="Batch label assigned at bulk-create time. All codes in the same batch share the same title.",
+    )
+    book = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
         related_name='promo_codes',
-        help_text="Books this code gives access to. Only relevant when code_type is 'specific'.",
+        null=True,
+        blank=True,
+        help_text="The book this code grants access to. Null = general code (valid for any book).",
     )
     is_active = models.BooleanField(default=True, db_index=True)
+    is_used = models.BooleanField(default=False, db_index=True)
     valid_from = models.DateTimeField(
         null=True,
         blank=True,
@@ -774,11 +788,14 @@ class PromoCode(models.Model):
         blank=True,
         help_text="End of validity window. Leave blank for no end restriction.",
     )
-    max_uses = models.PositiveIntegerField(
+    used_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        help_text="Maximum number of times this code can be redeemed. Leave blank for unlimited.",
+        related_name='redeemed_promo_codes',
     )
+    used_at = models.DateTimeField(null=True, blank=True)
     created_by = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
@@ -803,41 +820,15 @@ class PromoCode(models.Model):
         super().save(*args, **kwargs)
 
     @property
-    def redemptions_count(self):
-        return self.redemptions.count()
-
-    @property
     def is_valid(self):
         """Check whether the code is currently usable."""
         now = timezone.now()
         if not self.is_active:
             return False
+        if self.is_used:
+            return False
         if self.valid_from and now < self.valid_from:
             return False
         if self.valid_until and now > self.valid_until:
             return False
-        if self.max_uses is not None and self.redemptions_count >= self.max_uses:
-            return False
         return True
-
-
-class PromoCodeRedemption(models.Model):
-    promo_code = models.ForeignKey(
-        PromoCode,
-        on_delete=models.CASCADE,
-        related_name='redemptions',
-    )
-    user = models.ForeignKey(
-        User,
-        on_delete=models.CASCADE,
-        related_name='promo_code_redemptions',
-    )
-    redeemed_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ['-redeemed_at']
-        verbose_name = 'Promo Code Redemption'
-        verbose_name_plural = 'Promo Code Redemptions'
-
-    def __str__(self):
-        return f"{self.promo_code.code} redeemed by {self.user}"

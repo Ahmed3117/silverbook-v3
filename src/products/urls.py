@@ -50,6 +50,7 @@ urlpatterns = [
     path('dashboard/products/', views.ProductListCreateView.as_view(), name='admin-product-list-create'),
     path('dashboard/products-breifed/', views.ProductListBreifedView.as_view(), name='admin-product-list-breifed'),
     path('dashboard/products-simple/', views.ProductSimpleListView.as_view(), name='admin-product-simple-list'),
+    path('dashboard/products/reorder/', views.ProductReorderView.as_view(), name='admin-product-reorder'),
     path('dashboard/products/<int:pk>/', views.ProductRetrieveUpdateDestroyView.as_view(), name='admin-product-detail'),
     path('dashboard/publish-book-requests/', views.AdminBookPublishRequestListView.as_view(), name='admin-book-publish-request-list'),
     path('dashboard/publish-book-requests/<int:pk>/', views.AdminBookPublishRequestRetrieveUpdateView.as_view(), name='admin-book-publish-request-detail'),
@@ -96,9 +97,10 @@ urlpatterns = [
     path('dashboard/packages/products/<int:product_id>/remove-all-relationships/', views.RemoveAllProductRelationshipsView.as_view(), name='remove-all-product-relationships'),
 
     # Promo Code Endpoints (Dashboard)
-    path('dashboard/promo-codes/', views.PromoCodeListCreateView.as_view(), name='admin-promo-code-list-create'),
+    path('dashboard/promo-codes/', views.PromoCodeListView.as_view(), name='admin-promo-code-list'),
+    path('dashboard/promo-codes/bulk-create/', views.PromoCodeBulkCreateView.as_view(), name='admin-promo-code-bulk-create'),
+    path('dashboard/promo-codes/book-stats/', views.PromoCodeBookStatsView.as_view(), name='admin-promo-code-book-stats'),
     path('dashboard/promo-codes/<int:pk>/', views.PromoCodeRetrieveUpdateDestroyView.as_view(), name='admin-promo-code-detail'),
-    path('dashboard/promo-code-redemptions/', views.PromoCodeRedemptionListView.as_view(), name='admin-promo-code-redemption-list'),
 
     # Promo Code Endpoints (Student)
     path('promo-codes/redeem/', views.RedeemPromoCodeView.as_view(), name='promo-code-redeem'),
