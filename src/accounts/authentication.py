@@ -6,7 +6,55 @@ Admins can adjust the limit per student and remove devices.
 
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.exceptions import AuthenticationFailed
+from django.conf import settings
+from django.core.cache import cache
 from django.utils import timezone
+
+
+DEFAULT_DEVICE_LAST_USED_UPDATE_INTERVAL_SECONDS = 300
+
+
+def _device_last_used_update_interval_seconds():
+    try:
+        return max(
+            0,
+            int(
+                getattr(
+                    settings,
+                    'DEVICE_LAST_USED_UPDATE_INTERVAL_SECONDS',
+                    DEFAULT_DEVICE_LAST_USED_UPDATE_INTERVAL_SECONDS,
+                )
+            ),
+        )
+    except (TypeError, ValueError):
+        return DEFAULT_DEVICE_LAST_USED_UPDATE_INTERVAL_SECONDS
+
+
+def _maybe_update_device_last_used(device):
+    interval_seconds = _device_last_used_update_interval_seconds()
+    now = timezone.now()
+
+    if (
+        interval_seconds > 0
+        and device.last_used_at
+        and (now - device.last_used_at).total_seconds() < interval_seconds
+    ):
+        return False
+
+    cache_key = f'auth:device-last-used:{device.pk}'
+    if interval_seconds > 0 and not cache.add(cache_key, True, timeout=interval_seconds):
+        return False
+
+    from accounts.models import UserDevice
+
+    try:
+        UserDevice.objects.filter(pk=device.pk).update(last_used_at=now)
+    except Exception:
+        cache.delete(cache_key)
+        raise
+
+    device.last_used_at = now
+    return True
 
 
 class MultiDeviceJWTAuthentication(JWTAuthentication):
@@ -52,8 +100,8 @@ class MultiDeviceJWTAuthentication(JWTAuthentication):
                 from accounts.models import UserDevice
                 
                 # Check if this device_token exists and is active for this user
-                device = UserDevice.objects.filter(
-                    user=user,
+                device = UserDevice.objects.only('id', 'is_banned', 'last_used_at').filter(
+                    user_id=user.id,
                     device_token=token_device_id,
                     is_active=True
                 ).first()
@@ -71,8 +119,6 @@ class MultiDeviceJWTAuthentication(JWTAuthentication):
                         code='device_banned'  
                     )
                 
-                # Update last_used_at timestamp
-                device.last_used_at = timezone.now()
-                device.save(update_fields=['last_used_at'])
+                _maybe_update_device_last_used(device)
         
         return (user, validated_token)

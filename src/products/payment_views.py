@@ -11,9 +11,10 @@ from django.views.decorators.csrf import csrf_exempt
 from django.shortcuts import redirect
 from django.utils import timezone
 from django.db.models import F
+from django.core.cache import cache
+from django.conf import settings
 import json
 import logging
-import time
 
 from products.models import Pill, CouponDiscount
 from services.fawaterak_service import fawaterak_service
@@ -83,6 +84,208 @@ def is_fawry_ref_error(fawry_ref):
         pass
     
     return False
+
+
+def _decrement_coupon_usage(pill):
+    if not pill.coupon_id:
+        return
+
+    updated = CouponDiscount.objects.filter(
+        pk=pill.coupon_id,
+        available_use_times__gt=0
+    ).update(available_use_times=F('available_use_times') - 1)
+    if updated:
+        logger.info(f"Decremented coupon usage for coupon {pill.coupon_id} on pill {pill.id}")
+    else:
+        logger.warning(f"Could not decrement coupon usage for coupon {pill.coupon_id} - may be exhausted")
+
+
+def _invoice_lock_key(pill, gateway):
+    return f'invoice_creation:{gateway}:pill:{pill.id}'
+
+
+def _invoice_creation_in_progress_response(pill, gateway, *, include_pill_number=False, include_gateway=False):
+    response_data = {
+        'success': False,
+        'error': 'جاري إنشاء فاتورة الدفع لهذا الطلب بالفعل',
+        'status': 'creation_in_progress',
+    }
+    if include_pill_number:
+        response_data['pill_number'] = pill.pill_number
+    if include_gateway:
+        response_data['payment_gateway'] = gateway
+    return Response(response_data, status=status.HTTP_409_CONFLICT)
+
+
+def _create_easypay_invoice_once(pill, *, include_pill_number=False, include_gateway=False):
+    """Create one EasyPay invoice attempt without sleeping/retrying in the request thread."""
+    lock_key = _invoice_lock_key(pill, 'easypay')
+    if not cache.add(lock_key, True, timeout=settings.INVOICE_CREATION_LOCK_SECONDS):
+        return _invoice_creation_in_progress_response(
+            pill,
+            'easypay',
+            include_pill_number=include_pill_number,
+            include_gateway=include_gateway,
+        )
+
+    try:
+        result = easypay_service.create_payment_invoice(pill)
+    finally:
+        cache.delete(lock_key)
+
+    if not result['success']:
+        logger.error(f"EasyPay service error for pill {pill.id}: {result['error']}")
+        response_data = {
+            'success': False,
+            'error': result['error'],
+            'attempts': 1,
+        }
+        if include_pill_number:
+            response_data['pill_number'] = pill.pill_number
+        if include_gateway:
+            response_data['payment_gateway'] = 'easypay'
+        if result.get('data'):
+            response_data['data'] = result['data']
+        return Response(response_data, status=status.HTTP_400_BAD_REQUEST)
+
+    invoice_uid = result['data'].get('invoice_uid', '')
+    invoice_sequence = result['data'].get('invoice_sequence', '')
+    invoice_details = result['data'].get('invoice_details', {})
+    fawry_ref = invoice_details.get('fawry_ref', '')
+    if fawry_ref:
+        fawry_ref = str(fawry_ref)
+
+    logger.info(f"EasyPay fields - UID: {invoice_uid}, Sequence: {invoice_sequence}, Fawry: {fawry_ref}")
+
+    if fawry_ref and is_fawry_ref_error(fawry_ref):
+        logger.warning(f"EasyPay fawry_ref contains error for pill {pill.id}: {fawry_ref}")
+        response_data = {
+            'success': False,
+            'error': 'EasyPay invoice creation failed: Invalid Fawry reference',
+            'details': {
+                'fawry_ref_error': fawry_ref,
+                'attempts': 1
+            },
+        }
+        if include_pill_number:
+            response_data['pill_number'] = pill.pill_number
+        if include_gateway:
+            response_data['payment_gateway'] = 'easypay'
+        return Response(response_data, status=status.HTTP_400_BAD_REQUEST)
+
+    _decrement_coupon_usage(pill)
+
+    pill.easypay_invoice_uid = invoice_uid
+    pill.easypay_invoice_sequence = invoice_sequence
+    pill.easypay_fawry_ref = fawry_ref
+    pill.easypay_data = result['data']
+    pill.easypay_created_at = timezone.now()
+    pill.payment_gateway = 'easypay'
+    pill.status = 'w'
+    pill.save(update_fields=[
+        'easypay_invoice_uid', 'easypay_invoice_sequence', 'easypay_fawry_ref',
+        'easypay_data', 'easypay_created_at', 'payment_gateway', 'status'
+    ])
+
+    return Response({
+        'success': True,
+        'message': 'EasyPay invoice created successfully',
+        'data': _serialize_easypay_invoice(pill, attempts=1)
+    }, status=status.HTTP_201_CREATED)
+
+
+def _create_shakeout_invoice_once(pill, *, include_gateway=False):
+    """Create one Shake-out invoice attempt without sleeping/retrying in the request thread."""
+    lock_key = _invoice_lock_key(pill, 'shakeout')
+    if not cache.add(lock_key, True, timeout=settings.INVOICE_CREATION_LOCK_SECONDS):
+        return _invoice_creation_in_progress_response(
+            pill,
+            'shakeout',
+            include_pill_number=True,
+            include_gateway=include_gateway,
+        )
+
+    try:
+        result = shakeout_service.create_payment_invoice(pill)
+    finally:
+        cache.delete(lock_key)
+    logger.info(
+        "Shake-out invoice creation result for pill %s: success=%s",
+        pill.id,
+        result.get('success'),
+    )
+
+    if not result['success']:
+        logger.error(f"Shake-out service error for pill {pill.id}: {result['error']}")
+        response_data = {
+            'success': False,
+            'error': result['error'],
+            'pill_number': pill.pill_number,
+            'attempts': 1,
+        }
+        if include_gateway:
+            response_data['payment_gateway'] = 'shakeout'
+        if result.get('data'):
+            response_data['data'] = result['data']
+        return Response(response_data, status=status.HTTP_400_BAD_REQUEST)
+
+    fawry_ref = result['data'].get('fawry_ref', '')
+    if fawry_ref:
+        fawry_ref = str(fawry_ref)
+        if is_fawry_ref_error(fawry_ref):
+            logger.warning(f"Shake-out fawry_ref contains error for pill {pill.id}: {fawry_ref}")
+            response_data = {
+                'success': False,
+                'error': 'Shake-out invoice creation failed: Invalid Fawry reference',
+                'details': {
+                    'fawry_ref_error': fawry_ref,
+                    'attempts': 1
+                },
+                'pill_number': pill.pill_number
+            }
+            if include_gateway:
+                response_data['payment_gateway'] = 'shakeout'
+            return Response(response_data, status=status.HTTP_400_BAD_REQUEST)
+
+    _decrement_coupon_usage(pill)
+
+    pill.shakeout_invoice_id = result['data']['invoice_id']
+    pill.shakeout_invoice_ref = result['data']['invoice_ref']
+    pill.shakeout_data = result['data']
+    pill.shakeout_created_at = timezone.now()
+    pill.payment_gateway = 'shakeout'
+    pill.status = 'w'
+    pill.save(update_fields=[
+        'shakeout_invoice_id', 'shakeout_invoice_ref', 'shakeout_data',
+        'shakeout_created_at', 'payment_gateway', 'status'
+    ])
+
+    if include_gateway:
+        return Response({
+            'success': True,
+            'message': 'Shakeout invoice created successfully',
+            'data': {
+                'invoice_id': result['data']['invoice_id'],
+                'invoice_ref': result['data']['invoice_ref'],
+                'payment_url': result['data']['url'],
+                'total_amount': result['data']['total_amount'],
+                'payment_gateway': 'shakeout'
+            }
+        }, status=status.HTTP_201_CREATED)
+
+    return Response({
+        'success': True,
+        'message': result.get('message', 'Shake-out invoice created successfully'),
+        'data': {
+            'invoice_id': result['data']['invoice_id'],
+            'invoice_ref': result['data']['invoice_ref'],
+            'payment_url': result['data']['url'],
+            'total_amount': result['data']['total_amount'],
+            'pill_number': pill.pill_number,
+            'currency': result['data']['currency'],
+            'attempts': 1
+        }
+    }, status=status.HTTP_201_CREATED)
 
 class CustomJWTAuthentication(JWTAuthentication):
     """Custom JWT authentication that checks both 'Authorization' and 'auth' headers"""
@@ -260,13 +463,14 @@ class CheckPaymentStatusView(APIView):
 @api_view(['POST'])
 @permission_classes([])  # No authentication required for webhooks
 def fawaterak_webhook(request):
-    print("-------------------------------------------")
-    print('i am in webhook view')
-    print("-------------------------------------------")
-    
     try:
         webhook_data = request.data if hasattr(request, 'data') else json.loads(request.body.decode('utf-8'))
-        logger.info(f"Received Fawaterak webhook: {webhook_data}")
+        logger.info(
+            "Received Fawaterak webhook: invoice_status=%s invoice_id=%s has_payload=%s",
+            webhook_data.get('invoice_status'),
+            webhook_data.get('invoice_id'),
+            bool(webhook_data.get('pay_load')),
+        )
 
         # Ensure pay_load is a dict
         pay_load = webhook_data.get('pay_load')
@@ -459,106 +663,7 @@ class CreateShakeoutInvoiceView(APIView):
                 }, status=status.HTTP_400_BAD_REQUEST)
             
             logger.info(f"All items available for pill {pill_id}, proceeding with Shake-out invoice creation")
-            
-            # Try creating the invoice with retry logic for fawry_ref errors
-            max_retries = 2  # Initial attempt + 1 retry
-            retry_delay = 10  # 10 seconds
-            
-            for attempt in range(max_retries):
-                logger.info(f"Shake-out invoice creation attempt {attempt + 1} for pill {pill_id}")
-                
-                result = shakeout_service.create_payment_invoice(pill)
-                logger.info(f"shakeout_service.create_payment_invoice returned: {result}")
-                
-                if result['success']:
-                    # Extract invoice data from successful response
-                    invoice_id = result['data'].get('invoice_id', '')
-                    invoice_ref = result['data'].get('invoice_ref', '')
-                    
-                    # Check if there's a fawry_ref in the response that might contain an error
-                    fawry_ref = result['data'].get('fawry_ref', '')
-                    if fawry_ref:
-                        fawry_ref = str(fawry_ref)
-                        
-                        # Check if fawry_ref contains an error
-                        if is_fawry_ref_error(fawry_ref):
-                            logger.warning(f"Shake-out fawry_ref contains error on attempt {attempt + 1}: {fawry_ref}")
-                            
-                            if attempt < max_retries - 1:  # Not the last attempt
-                                logger.info(f"Waiting {retry_delay} seconds before retry...")
-                                time.sleep(retry_delay)
-                                continue  # Retry
-                            else:
-                                # Last attempt failed, return error
-                                logger.error(f"Shake-out fawry_ref still contains error after {max_retries} attempts")
-                                return Response({
-                                    'success': False,
-                                    'error': f'Shake-out invoice creation failed: Invalid Fawry reference after {max_retries} attempts',
-                                    'details': {
-                                        'fawry_ref_error': fawry_ref,
-                                        'attempts': max_retries
-                                    },
-                                    'pill_number': pill.pill_number
-                                }, status=status.HTTP_400_BAD_REQUEST)
-                    
-                    # Invoice created successfully, proceed with saving
-                    logger.info(f"Shake-out invoice created successfully on attempt {attempt + 1}")
-                    
-                    # Decrement coupon usage if a coupon is applied
-                    if pill.coupon_id:
-                        updated = CouponDiscount.objects.filter(
-                            pk=pill.coupon_id,
-                            available_use_times__gt=0
-                        ).update(available_use_times=F('available_use_times') - 1)
-                        if updated:
-                            logger.info(f"Decremented coupon usage for coupon {pill.coupon_id} on pill {pill_id}")
-                        else:
-                            logger.warning(f"Could not decrement coupon usage for coupon {pill.coupon_id} - may be exhausted")
-                    
-                    # Update pill with invoice data from successful response
-                    pill.shakeout_invoice_id = result['data']['invoice_id']
-                    pill.shakeout_invoice_ref = result['data']['invoice_ref']
-                    pill.shakeout_data = result['data']
-                    pill.shakeout_created_at = timezone.now()
-                    pill.payment_gateway = 'shakeout'
-                    pill.status = 'w'
-                    pill.save(update_fields=['shakeout_invoice_id', 'shakeout_invoice_ref', 'shakeout_data', 'shakeout_created_at', 'payment_gateway', 'status'])
-                    
-                    return Response({
-                        'success': True,
-                        'message': result.get('message', 'Shake-out invoice created successfully'),
-                        'data': {
-                            'invoice_id': result['data']['invoice_id'],
-                            'invoice_ref': result['data']['invoice_ref'],
-                            'payment_url': result['data']['url'],
-                            'total_amount': result['data']['total_amount'],
-                            'pill_number': pill.pill_number,
-                            'currency': result['data']['currency'],
-                            'attempts': attempt + 1
-                        }
-                    }, status=status.HTTP_201_CREATED)
-                else:
-                    # Shake-out service returned an error
-                    logger.error(f"Shake-out service error on attempt {attempt + 1}: {result['error']}")
-                    
-                    if attempt < max_retries - 1:  # Not the last attempt
-                        logger.info(f"Waiting {retry_delay} seconds before retry...")
-                        time.sleep(retry_delay)
-                        continue  # Retry
-                    else:
-                        # Last attempt failed, return the service error
-                        response_data = {
-                            'success': False,
-                            'error': result['error'],
-                            'pill_number': pill.pill_number,
-                            'attempts': max_retries
-                        }
-                        
-                        # Include additional data if available (like existing invoice info)
-                        if result.get('data'):
-                            response_data['data'] = result['data']
-                        
-                        return Response(response_data, status=status.HTTP_400_BAD_REQUEST)
+            return _create_shakeout_invoice_once(pill)
                 
         except Exception as e:
             logger.error(f"Exception creating Shake-out invoice for pill {pill_id}: {str(e)}")
@@ -649,103 +754,7 @@ class CreateEasyPayInvoiceView(APIView):
                 }, status=status.HTTP_400_BAD_REQUEST)
             
             logger.info(f"All items available for pill {pill_id}, proceeding with EasyPay invoice creation")
-            
-            # Try creating the invoice with retry logic for fawry_ref errors
-            max_retries = 2  # Initial attempt + 1 retry
-            retry_delay = 10  # 10 seconds
-            
-            for attempt in range(max_retries):
-                logger.info(f"EasyPay invoice creation attempt {attempt + 1} for pill {pill_id}")
-                
-                result = easypay_service.create_payment_invoice(pill)
-                logger.info(f"easypay_service.create_payment_invoice returned: {result}")
-                
-                if result['success']:
-                    # Extract invoice data from successful response
-                    invoice_uid = result['data'].get('invoice_uid', '')
-                    invoice_sequence = result['data'].get('invoice_sequence', '')
-                    
-                    # Safely extract fawry_ref from nested invoice_details
-                    invoice_details = result['data'].get('invoice_details', {})
-                    fawry_ref = invoice_details.get('fawry_ref', '')
-                    if fawry_ref:
-                        fawry_ref = str(fawry_ref)
-                    
-                    # Log field values for debugging
-                    logger.info(f"EasyPay fields - UID: {invoice_uid}, Sequence: {invoice_sequence}, Fawry: {fawry_ref}")
-                    
-                    # Check if fawry_ref contains an error
-                    if is_fawry_ref_error(fawry_ref):
-                        logger.warning(f"EasyPay fawry_ref contains error on attempt {attempt + 1}: {fawry_ref}")
-                        
-                        if attempt < max_retries - 1:  # Not the last attempt
-                            logger.info(f"Waiting {retry_delay} seconds before retry...")
-                            time.sleep(retry_delay)
-                            continue  # Retry
-                        else:
-                            # Last attempt failed, return error
-                            logger.error(f"EasyPay fawry_ref still contains error after {max_retries} attempts")
-                            return Response({
-                                'success': False,
-                                'error': f'EasyPay invoice creation failed: Invalid Fawry reference after {max_retries} attempts',
-                                'details': {
-                                    'fawry_ref_error': fawry_ref,
-                                    'attempts': max_retries
-                                },
-                                'pill_number': pill.pill_number
-                            }, status=status.HTTP_400_BAD_REQUEST)
-                    
-                    # fawry_ref is valid, proceed with saving
-                    logger.info(f"EasyPay invoice created successfully with valid fawry_ref on attempt {attempt + 1}")
-                    
-                    # Decrement coupon usage if a coupon is applied
-                    if pill.coupon_id:
-                        updated = CouponDiscount.objects.filter(
-                            pk=pill.coupon_id,
-                            available_use_times__gt=0
-                        ).update(available_use_times=F('available_use_times') - 1)
-                        if updated:
-                            logger.info(f"Decremented coupon usage for coupon {pill.coupon_id} on pill {pill_id}")
-                        else:
-                            logger.warning(f"Could not decrement coupon usage for coupon {pill.coupon_id} - may be exhausted")
-                    
-                    # Update pill fields
-                    pill.easypay_invoice_uid = invoice_uid
-                    pill.easypay_invoice_sequence = invoice_sequence
-                    pill.easypay_fawry_ref = fawry_ref
-                    pill.easypay_data = result['data']
-                    pill.easypay_created_at = timezone.now()
-                    pill.payment_gateway = 'easypay'
-                    pill.status = 'w'
-                    pill.save(update_fields=['easypay_invoice_uid', 'easypay_invoice_sequence', 'easypay_fawry_ref', 'easypay_data', 'easypay_created_at', 'payment_gateway', 'status'])
-
-                    return Response({
-                        'success': True,
-                        'message': 'EasyPay invoice created successfully',
-                        'data': _serialize_easypay_invoice(pill, attempts=attempt + 1)
-                    }, status=status.HTTP_201_CREATED)
-                else:
-                    # EasyPay service returned an error
-                    logger.error(f"EasyPay service error on attempt {attempt + 1}: {result['error']}")
-                    
-                    if attempt < max_retries - 1:  # Not the last attempt
-                        logger.info(f"Waiting {retry_delay} seconds before retry...")
-                        time.sleep(retry_delay)
-                        continue  # Retry
-                    else:
-                        # Last attempt failed, return the service error
-                        response_data = {
-                            'success': False,
-                            'error': result['error'],
-                            'pill_number': pill.pill_number,
-                            'attempts': max_retries
-                        }
-                        
-                        # Include additional data if available (like existing invoice info)
-                        if result.get('data'):
-                            response_data['data'] = result['data']
-                        
-                        return Response(response_data, status=status.HTTP_400_BAD_REQUEST)
+            return _create_easypay_invoice_once(pill, include_pill_number=True)
                 
         except Exception as e:
             logger.error(f"Exception creating EasyPay invoice for pill {pill_id}: {str(e)}")
@@ -768,23 +777,6 @@ class CreatePaymentInvoiceView(APIView):
             from django.conf import settings
             
             logger.info(f"Starting payment invoice creation for pill {pill_id}")
-            logger.info(f"request.user: {request.user}")
-            logger.info(f"request.user type: {type(request.user)}")
-            logger.info(f"request.user.id: {request.user.id if hasattr(request.user, 'id') else 'NO ID'}")
-            logger.info(f"is_authenticated: {request.user.is_authenticated if hasattr(request.user, 'is_authenticated') else 'NO ATTR'}")
-            
-            # Debug: Check all pills
-            all_pills = Pill.objects.filter(id=pill_id)
-            logger.info(f"All pills with id={pill_id}: {all_pills.count()} found")
-            for p in all_pills:
-                logger.info(f"  - Pill: id={p.id}, user_id={p.user_id}, user={p.user}")
-            
-            # Debug: Check pills for this user
-            user_pills = Pill.objects.filter(user=request.user)
-            logger.info(f"Pills for user {request.user.id}: {user_pills.count()} found")
-            for p in user_pills:
-                logger.info(f"  - Pill: id={p.id}, user_id={p.user_id}")
-            
             pill = get_object_or_404(Pill, id=pill_id, user=request.user)
             logger.info(f"Pill found: {pill.pill_number} with status: {pill.status}")
             
@@ -864,7 +856,6 @@ class CreatePaymentInvoiceView(APIView):
             logger.info(f"Active payment method: {active_method}")
             
             if active_method == 'easypay':
-                # Use EasyPay
                 if pill.easypay_invoice_uid and not pill.is_easypay_invoice_expired():
                     logger.warning(f"Pill {pill_id} already has active EasyPay invoice")
                     return Response({
@@ -872,105 +863,10 @@ class CreatePaymentInvoiceView(APIView):
                         'message': 'EasyPay invoice already exists',
                         'data': _serialize_easypay_invoice(pill, attempts=0)
                     }, status=status.HTTP_200_OK)
-                
-                # Try creating the invoice with retry logic for fawry_ref errors
-                max_retries = 2  # Initial attempt + 1 retry
-                retry_delay = 10  # 10 seconds
-                
-                for attempt in range(max_retries):
-                    logger.info(f"EasyPay invoice creation attempt {attempt + 1} for pill {pill_id}")
-                    
-                    result = easypay_service.create_payment_invoice(pill)
-                    
-                    if result['success']:
-                        # Extract invoice data from successful response
-                        invoice_uid = result['data'].get('invoice_uid', '')
-                        invoice_sequence = result['data'].get('invoice_sequence', '')
-                        
-                        # Safely extract fawry_ref from nested invoice_details
-                        invoice_details = result['data'].get('invoice_details', {})
-                        fawry_ref = invoice_details.get('fawry_ref', '')
-                        if fawry_ref:
-                            fawry_ref = str(fawry_ref)
-                        
-                        # Log field values for debugging
-                        logger.info(f"EasyPay fields - UID: {invoice_uid}, Sequence: {invoice_sequence}, Fawry: {fawry_ref}")
-                        
-                        # Check if fawry_ref contains an error
-                        if is_fawry_ref_error(fawry_ref):
-                            logger.warning(f"EasyPay fawry_ref contains error on attempt {attempt + 1}: {fawry_ref}")
-                            
-                            if attempt < max_retries - 1:  # Not the last attempt
-                                logger.info(f"Waiting {retry_delay} seconds before retry...")
-                                time.sleep(retry_delay)
-                                continue  # Retry
-                            else:
-                                # Last attempt failed, return error
-                                logger.error(f"EasyPay fawry_ref still contains error after {max_retries} attempts")
-                                return Response({
-                                    'success': False,
-                                    'error': f'EasyPay invoice creation failed: Invalid Fawry reference after {max_retries} attempts',
-                                    'details': {
-                                        'fawry_ref_error': fawry_ref,
-                                        'attempts': max_retries
-                                    },
-                                    'payment_gateway': 'easypay'
-                                }, status=status.HTTP_400_BAD_REQUEST)
-                        
-                        # fawry_ref is valid, proceed with saving
-                        logger.info(f"EasyPay invoice created successfully with valid fawry_ref on attempt {attempt + 1}")
-                        
-                        # Decrement coupon usage if a coupon is applied
-                        if pill.coupon_id:
-                            updated = CouponDiscount.objects.filter(
-                                pk=pill.coupon_id,
-                                available_use_times__gt=0
-                            ).update(available_use_times=F('available_use_times') - 1)
-                            if updated:
-                                logger.info(f"Decremented coupon usage for coupon {pill.coupon_id} on pill {pill_id}")
-                            else:
-                                logger.warning(f"Could not decrement coupon usage for coupon {pill.coupon_id} - may be exhausted")
-                        
-                        # Update pill fields
-                        pill.easypay_invoice_uid = invoice_uid
-                        pill.easypay_invoice_sequence = invoice_sequence
-                        pill.easypay_fawry_ref = fawry_ref
-                        pill.easypay_data = result['data']
-                        pill.easypay_created_at = timezone.now()
-                        pill.payment_gateway = 'easypay'
-                        pill.status = 'w'
-                        pill.save(update_fields=['easypay_invoice_uid', 'easypay_invoice_sequence', 'easypay_fawry_ref', 'easypay_data', 'easypay_created_at', 'payment_gateway', 'status'])
 
-                        return Response({
-                            'success': True,
-                            'message': 'EasyPay invoice created successfully',
-                            'data': _serialize_easypay_invoice(pill, attempts=attempt + 1)
-                        }, status=status.HTTP_201_CREATED)
-                    else:
-                        # EasyPay service returned an error
-                        logger.error(f"EasyPay service error on attempt {attempt + 1}: {result['error']}")
-                        
-                        if attempt < max_retries - 1:  # Not the last attempt
-                            logger.info(f"Waiting {retry_delay} seconds before retry...")
-                            time.sleep(retry_delay)
-                            continue  # Retry
-                        else:
-                            # Last attempt failed, return the service error
-                            return Response({
-                                'success': False,
-                                'error': result['error'],
-                                'payment_gateway': 'easypay',
-                                'attempts': max_retries
-                            }, status=status.HTTP_400_BAD_REQUEST)
-                else:
-                    return Response({
-                        'success': False,
-                        'error': result['error'],
-                        'payment_gateway': 'easypay'
-                    }, status=status.HTTP_400_BAD_REQUEST)
+                return _create_easypay_invoice_once(pill, include_gateway=True)
             
             else:  # Default to shakeout
-                # Use Shakeout
                 if pill.shakeout_invoice_id and not pill.is_shakeout_invoice_expired():
                     logger.warning(f"Pill {pill_id} already has active Shakeout invoice")
                     return Response({
@@ -978,46 +874,8 @@ class CreatePaymentInvoiceView(APIView):
                         'message': 'Shakeout invoice already exists',
                         'data': _serialize_shakeout_invoice(pill)
                     }, status=status.HTTP_200_OK)
-                
-                result = shakeout_service.create_payment_invoice(pill)
-                
-                if result['success']:
-                    # Decrement coupon usage if a coupon is applied
-                    if pill.coupon_id:
-                        updated = CouponDiscount.objects.filter(
-                            pk=pill.coupon_id,
-                            available_use_times__gt=0
-                        ).update(available_use_times=F('available_use_times') - 1)
-                        if updated:
-                            logger.info(f"Decremented coupon usage for coupon {pill.coupon_id} on pill {pill_id}")
-                        else:
-                            logger.warning(f"Could not decrement coupon usage for coupon {pill.coupon_id} - may be exhausted")
-                    
-                    pill.shakeout_invoice_id = result['data']['invoice_id']
-                    pill.shakeout_invoice_ref = result['data']['invoice_ref']
-                    pill.shakeout_data = result['data']
-                    pill.shakeout_created_at = timezone.now()
-                    pill.payment_gateway = 'shakeout'
-                    pill.status = 'w'
-                    pill.save(update_fields=['shakeout_invoice_id', 'shakeout_invoice_ref', 'shakeout_data', 'shakeout_created_at', 'payment_gateway', 'status'])
-                    
-                    return Response({
-                        'success': True,
-                        'message': 'Shakeout invoice created successfully',
-                        'data': {
-                            'invoice_id': result['data']['invoice_id'],
-                            'invoice_ref': result['data']['invoice_ref'],
-                            'payment_url': result['data']['url'],
-                            'total_amount': result['data']['total_amount'],
-                            'payment_gateway': 'shakeout'
-                        }
-                    }, status=status.HTTP_201_CREATED)
-                else:
-                    return Response({
-                        'success': False,
-                        'error': result['error'],
-                        'payment_gateway': 'shakeout'
-                    }, status=status.HTTP_400_BAD_REQUEST)
+
+                return _create_shakeout_invoice_once(pill, include_gateway=True)
                 
         except Exception as e:
             logger.error(f"Exception creating payment invoice for pill {pill_id}: {str(e)}")

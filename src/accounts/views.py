@@ -70,6 +70,7 @@ def get_device_info_from_request(request):
 from accounts.pagination import CustomPageNumberPagination
 from products.models import Pill, PillItem
 from django.db.models import Prefetch
+from products.querysets import optimize_pill_item_queryset
 from .serializers import (
     ChangePasswordSerializer,
     UserProfileImageCreateSerializer,
@@ -1004,7 +1005,7 @@ class UserOrdersView(generics.ListAPIView):
             .prefetch_related(
                 Prefetch(
                     'items',
-                    queryset=PillItem.objects.select_related('product', 'product__teacher')
+                    queryset=optimize_pill_item_queryset(PillItem.objects.all())
                 )
             )
             .order_by('-date_added')
@@ -1118,7 +1119,7 @@ def change_password(request):
 @api_view(['POST'])
 @permission_classes([IsAdminUser])
 def create_admin_user(request):
-    serializer = UserSerializer(data=request.data)
+    serializer = UserSerializer(data=request.data, context={'request': request})
     if serializer.is_valid():
         user = serializer.save(is_staff=True, is_superuser=False)
         refresh = RefreshToken.for_user(user)
@@ -1143,7 +1144,7 @@ class UserCreateAPIView(APIView):
                 {'error': 'لا يمكن إنشاء مستخدم من نوع مدرس من هذا المسار. استخدم مسار إنشاء المدرس /products/dashboard/teachers/'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        serializer = UserSerializer(data=request.data)
+        serializer = UserSerializer(data=request.data, context={'request': request})
         if serializer.is_valid():
             user = serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -1175,10 +1176,10 @@ class UserUpdateAPIView(APIView):
         # Check if password is being changed
         password_changed = 'password' in request.data
         
-        serializer = UserSerializer(user, data=request.data, partial=True)
+        serializer = UserSerializer(user, data=request.data, partial=True, context={'request': request})
         if serializer.is_valid():
             serializer.save()
-            
+
             # If password was changed, logout user from all devices
             if password_changed:
                 UserDevice.objects.filter(user=user, is_active=True).update(is_active=False)

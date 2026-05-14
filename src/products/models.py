@@ -2,6 +2,7 @@ import random
 import string
 import uuid
 from django.db import models
+from django.db.models import Prefetch
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator, MaxValueValidator
 from services.beon_service import send_beon_sms
@@ -502,15 +503,48 @@ class Pill(models.Model):
     def items_subtotal(self):
         """Return the subtotal for the pill using current discounted product prices."""
         total = 0.0
-        for item in self.items.select_related('product').all():
+        items = self._items_for_total()
+        for item in items:
             product = getattr(item, 'product', None)
             if not product:
                 continue
-            price = product.discounted_price()
+            price = self._discounted_product_price(product)
             if price is None:
                 price = product.price or 0.0
             total += float(price)
         return total
+
+    def _items_for_total(self):
+        prefetched_items = getattr(self, '_prefetched_objects_cache', {}).get('items')
+        if prefetched_items is not None:
+            return prefetched_items
+
+        return self.items.select_related(
+            'product',
+            'product__subject',
+            'product__teacher',
+            'product__teacher__user',
+        ).prefetch_related(
+            Prefetch(
+                'product__discounts',
+                queryset=Discount.objects.filter(
+                    is_active=True,
+                    discount_start__lte=timezone.now(),
+                    discount_end__gte=timezone.now(),
+                ).order_by('-discount', '-discount_end'),
+                to_attr='prefetched_active_discounts',
+            )
+        ).all()
+
+    def _discounted_product_price(self, product):
+        prefetched_discounts = getattr(product, 'prefetched_active_discounts', None)
+        if prefetched_discounts is not None:
+            discount = prefetched_discounts[0] if prefetched_discounts else None
+            if discount:
+                return product.price * (1 - discount.discount / 100)
+            return product.price
+
+        return product.discounted_price()
 
     def final_price(self):
         subtotal = self.items_subtotal()
