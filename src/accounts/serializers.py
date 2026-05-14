@@ -101,7 +101,11 @@ class UserSerializer(serializers.ModelSerializer):
 
         # Check if this is an admin request (admin-created students can have any phone format)
         request = self.context.get('request')
-        is_admin_request = request and getattr(request, 'user', None) and request.user.is_staff
+        is_admin_request = False
+        if request is not None:
+            user = getattr(request, 'user', None)
+            if user is not None and hasattr(user, 'is_staff'):
+                is_admin_request = bool(user.is_staff)
 
         # Only validate phone format for students if NOT an admin request
         if user_type == 'student' and username and not is_admin_request:
