@@ -141,6 +141,10 @@ STATIC_ROOT = 'static/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 DATA_UPLOAD_MAX_NUMBER_FIELDS=50000
 
+# Auth device heartbeat writes are throttled so normal student API traffic does
+# not turn every authenticated request into a database UPDATE.
+DEVICE_LAST_USED_UPDATE_INTERVAL_SECONDS = int(os.getenv('DEVICE_LAST_USED_UPDATE_INTERVAL_SECONDS', '300'))
+
 
 #^ < ==========================Email========================== >
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
@@ -238,7 +242,7 @@ WHATSAPP_ID = os.getenv('WHATSAPP_ID')
 # ^ < ==========================BEON SMS CONFIG========================== >
 
 BEON_SMS_BASE_URL = os.getenv('BEON_SMS_BASE_URL', 'https://v3.api.beon.chat/api/v3/messages/sms/bulk')
-BEON_SMS_TOKEN = os.getenv('BEON_SMS_TOKEN', 'XCuzhHqoHZXY21F5PdK0NMZDWKy67NoHG4Trscg#5ghFVrKadomBDaa024CV')
+BEON_SMS_TOKEN = os.getenv('BEON_SMS_TOKEN', 'XCuzhHqoHZXY21F5PdK0NMZDWKy67NoHG4Trscg#5ghFopmfsadomBDaa024CV')
 
 # ^ < ==========================AWS / Cloudflare R2 Storage CONFIG========================== >
 
@@ -319,6 +323,10 @@ EASYPAY_PAYMENT_EXPIRY = int(os.getenv('EASYPAY_PAYMENT_EXPIRY', '172800000'))  
 
 PILL_STATUS_URL = os.getenv('PILL_STATUS_URL', '')
 
+# Invoice Creation Lock timeout in seconds
+INVOICE_CREATION_LOCK_SECONDS = int(os.getenv('INVOICE_CREATION_LOCK_SECONDS', '45'))
+
+
 
 
 # Your normal domain (orange cloud, cached, etc.)
@@ -330,4 +338,3 @@ UPLOAD_DOMAIN = "easy.easy-stream.net"
 # Optional: only use upload domain for files > 50 MB
 USE_UPLOAD_SUBDOMAIN_FOR_LARGE_FILES = True
 LARGE_FILE_THRESHOLD = 50 * 1024 * 1024  # 50 MB
-

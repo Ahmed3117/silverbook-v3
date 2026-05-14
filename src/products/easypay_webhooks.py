@@ -11,6 +11,15 @@ from services.easypay_service import easypay_service
 
 logger = logging.getLogger(__name__)
 
+
+def _request_summary(request):
+    return {
+        'method': request.method,
+        'content_type': request.headers.get('content-type'),
+        'content_length': request.headers.get('content-length') or len(request.body or b''),
+    }
+
+
 @csrf_exempt
 @require_http_methods(["GET", "POST", "HEAD"])
 def easypay_webhook(request, api_key=None):
@@ -45,15 +54,12 @@ def handle_easypay_webhook_post(request, api_key):
         if api_key:
             expected_api_key = getattr(settings, 'EASYPAY_API_KEY', None)
             if not expected_api_key or api_key != expected_api_key:
-                logger.warning(f"Invalid API key received: {api_key}")
+                logger.warning("Invalid EasyPay webhook API key received")
                 return JsonResponse({
                     'error': 'Unauthorized'
                 }, status=401)
         
-        # Log the incoming webhook
-        logger.info("=== EasyPay Webhook Received ===")
-        logger.info(f"Headers: {dict(request.headers)}")
-        logger.info(f"Body: {request.body.decode('utf-8')}")
+        logger.info("EasyPay webhook received: %s", _request_summary(request))
         
         # Parse the webhook payload
         try:
@@ -71,12 +77,14 @@ def handle_easypay_webhook_post(request, api_key):
         customer_phone = webhook_data.get("customer_phone")
         amount = webhook_data.get("amount")
         
-        logger.info(f"Webhook data extracted:")
-        logger.info(f"  - EasyPay Sequence: {easypay_sequence}")
-        logger.info(f"  - Status: {status_paid}")
-        logger.info(f"  - Customer Phone: {customer_phone}")
-        logger.info(f"  - Amount: {amount}")
-        logger.info(f"  - Received Signature: {received_signature}")
+        logger.info(
+            "EasyPay webhook data: sequence=%s status=%s amount=%s phone_suffix=%s signature_present=%s",
+            easypay_sequence,
+            status_paid,
+            amount,
+            str(customer_phone)[-4:] if customer_phone else None,
+            bool(received_signature),
+        )
         
         # Validate required fields
         if not all([easypay_sequence, status_paid, received_signature, customer_phone, amount]):
@@ -115,18 +123,16 @@ def handle_easypay_webhook_post(request, api_key):
         )
         
         if not is_signature_valid:
-            logger.error(f"Invalid signature for pill {pill.pill_number}")
-            logger.error(f"  - Expected pattern: amount + customer_phone + secret_key")
-            logger.error(f"  - Received signature: {received_signature}")
+            logger.error("Invalid EasyPay webhook signature for pill_id=%s", pill.id)
             return JsonResponse({
                 'error': 'Invalid signature'
             }, status=403)
         
-        logger.info(f"✓ Signature verification passed for pill {pill.pill_number}")
+        logger.info("EasyPay webhook signature verified for pill_id=%s", pill.id)
         
         # Process payment status
         if status_paid == 'PAID':
-            logger.info(f"Processing payment confirmation for pill {pill.pill_number}")
+            logger.info("Processing EasyPay paid webhook for pill_id=%s", pill.id)
             
             old_status = pill.status
             pill.status = 'p'
@@ -140,9 +146,7 @@ def handle_easypay_webhook_post(request, api_key):
             
             pill.save(update_fields=['status', 'easypay_data'])
             
-            logger.info(f"✓ Updated pill {pill.pill_number}:")
-            logger.info(f"  - Status: {old_status} → {pill.status}")
-            logger.info(f"  - Amount: {amount}")
+            logger.info("Updated pill_id=%s from status=%s to status=%s", pill.id, old_status, pill.status)
             
             # Grant purchased books to user - THIS IS CRITICAL for adding books after payment
             try:
@@ -161,7 +165,7 @@ def handle_easypay_webhook_post(request, api_key):
                 # Don't fail the webhook for notification errors
         
         elif status_paid == 'EXPIRED':
-            logger.info(f"Processing EXPIRED status for pill {pill.pill_number}")
+            logger.info("Processing EasyPay expired webhook for pill_id=%s", pill.id)
             
             old_status = pill.status
             pill.status = 'e'
@@ -175,9 +179,7 @@ def handle_easypay_webhook_post(request, api_key):
             
             pill.save(update_fields=['status', 'easypay_data'])
             
-            logger.info(f"✓ Updated pill {pill.pill_number}:")
-            logger.info(f"  - Status: {old_status} → {pill.status} (Expired)")
-            logger.info(f"  - Amount: {amount}")
+            logger.info("Updated pill_id=%s from status=%s to expired", pill.id, old_status)
         
         else:
             logger.info(f"Non-payment status received for pill {pill.pill_number}: {status_paid}")
@@ -223,11 +225,6 @@ def test_easypay_webhook_signature():
     string_to_hash = f"{amount}{customer_phone}{secret_key}"
     expected_signature = hashlib.sha256(string_to_hash.encode('utf-8')).hexdigest()
     
-    logger.info("=== EasyPay Webhook Signature Test ===")
-    logger.info(f"Amount: {amount}")
-    logger.info(f"Customer Phone: {customer_phone}")
-    logger.info(f"Secret Key: {secret_key}")
-    logger.info(f"String to Hash: {string_to_hash}")
-    logger.info(f"Expected Signature: {expected_signature}")
+    logger.debug("EasyPay webhook signature test calculated for amount=%s phone_suffix=%s", amount, customer_phone[-4:])
     
     return expected_signature

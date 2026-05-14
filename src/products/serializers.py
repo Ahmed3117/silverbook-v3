@@ -291,59 +291,89 @@ class ProductSerializer(serializers.ModelSerializer):
             return get_full_file_url(obj.teacher.image, self.context.get('request'))
         return None
 
+    def _active_discounts(self, obj):
+        prefetched = getattr(obj, 'prefetched_active_discounts', None)
+        if prefetched is not None:
+            return prefetched
+
+        cached = getattr(obj, '_serializer_active_discounts', None)
+        if cached is not None:
+            return cached
+
+        now = timezone.now()
+        discounts = list(obj.discounts.filter(
+            is_active=True,
+            discount_start__lte=now,
+            discount_end__gte=now
+        ).order_by('-discount', '-discount_end'))
+        obj._serializer_active_discounts = discounts
+        return discounts
+
+    def _highest_discount(self, obj):
+        discounts = self._active_discounts(obj)
+        return discounts[0] if discounts else None
+
     def get_discounted_price(self, obj):
-        return obj.discounted_price()
+        discount = self._highest_discount(obj)
+        if discount:
+            return obj.price * (1 - discount.discount / 100)
+        return obj.price
 
     def get_current_discount(self, obj):
-        now = timezone.now()
-        product_discount = obj.discounts.filter(
-            is_active=True,
-            discount_start__lte=now,
-            discount_end__gte=now
-        ).order_by('-discount').first()
-        return product_discount.discount if product_discount else None
+        discount = self._highest_discount(obj)
+        return discount.discount if discount else None
 
     def get_discount_expiry(self, obj):
-        now = timezone.now()
-        discount = obj.discounts.filter(
-            is_active=True,
-            discount_start__lte=now,
-            discount_end__gte=now
-        ).order_by('-discount_end').first()
+        discounts = self._active_discounts(obj)
+        discount = max(discounts, key=lambda item: item.discount_end) if discounts else None
         return discount.discount_end if discount else None
     
     def get_has_discount(self, obj):
-        return obj.has_discount()
+        return bool(self._active_discounts(obj))
+
+    def _package_products(self, obj):
+        prefetched = getattr(obj, 'prefetched_package_products', None)
+        if prefetched is not None:
+            return prefetched
+
+        return PackageProduct.objects.filter(package_product=obj).select_related(
+            'related_product',
+            'related_product__subject',
+            'related_product__teacher',
+            'related_product__teacher__user',
+        ).order_by('-created_at')
+
+    def _related_product_payload(self, package_product, include_pdf=False):
+        related = package_product.related_product
+        request = self.context.get('request')
+        payload = {
+            'id': package_product.id,
+            'created_at': package_product.created_at,
+            'product_id': related.id,
+            'product_number': related.product_number,
+            'name': related.name,
+            'type': related.type,
+            'subject_id': related.subject.id if related.subject else None,
+            'subject_name': related.subject.name if related.subject else None,
+            'teacher_id': related.teacher.id if related.teacher else None,
+            'teacher_name': related.teacher.name if related.teacher else None,
+            'description': related.description,
+            'base_image': get_full_file_url(related.base_image, request) if related.base_image else None,
+            'pdf_file': None,
+            'year': related.year,
+            'is_available': related.is_available,
+            'is_downloadable': related.is_downloadable,
+            'date_added': related.date_added,
+        }
+        if include_pdf:
+            payload['book_token'] = related.book_token
+            payload['pdf_file'] = get_full_file_url(related.pdf_file, request) if related.pdf_file else None
+        return payload
 
     def get_related_products(self, obj):
         """Return list of related products if this is a package, otherwise empty list."""
         if obj.type == 'package':
-            from .models import PackageProduct
-            package_products = PackageProduct.objects.filter(package_product=obj).select_related('related_product').order_by('-created_at')
-            related_items = []
-            request = self.context.get('request')
-            for pp in package_products:
-                related = pp.related_product
-                related_items.append({
-                    'id': pp.id,
-                    'created_at': pp.created_at,
-                    'product_id': related.id,
-                    'product_number': related.product_number,
-                    'name': related.name,
-                    'type': related.type,
-                    'subject_id': related.subject.id if related.subject else None,
-                    'subject_name': related.subject.name if related.subject else None,
-                    'teacher_id': related.teacher.id if related.teacher else None,
-                    'teacher_name': related.teacher.name if related.teacher else None,
-                    'description': related.description,
-                    'base_image': get_full_file_url(related.base_image, request) if related.base_image else None,
-                    'pdf_file': None,  # Hidden for student endpoints
-                    'year': related.year,
-                    'is_available': related.is_available,
-                    'is_downloadable': related.is_downloadable,
-                    'date_added': related.date_added,
-                })
-            return related_items
+            return [self._related_product_payload(pp) for pp in self._package_products(obj)]
         return []
     
     def validate(self, data):
@@ -433,33 +463,10 @@ class AdminProductSerializer(ProductSerializer):
     def get_related_products(self, obj):
         """Return list of related products with pdf_file for admin endpoints."""
         if obj.type == 'package':
-            from .models import PackageProduct
-            package_products = PackageProduct.objects.filter(package_product=obj).select_related('related_product').order_by('-created_at')
-            related_items = []
-            request = self.context.get('request')
-            for pp in package_products:
-                related = pp.related_product
-                related_items.append({
-                    'id': pp.id,
-                    'created_at': pp.created_at,
-                    'product_id': related.id,
-                    'book_token': related.book_token,
-                    'product_number': related.product_number,
-                    'name': related.name,
-                    'type': related.type,
-                    'subject_id': related.subject.id if related.subject else None,
-                    'subject_name': related.subject.name if related.subject else None,
-                    'teacher_id': related.teacher.id if related.teacher else None,
-                    'teacher_name': related.teacher.name if related.teacher else None,
-                    'description': related.description,
-                    'base_image': get_full_file_url(related.base_image, request) if related.base_image else None,
-                    'pdf_file': get_full_file_url(related.pdf_file, request) if related.pdf_file else None,
-                    'year': related.year,
-                    'is_available': related.is_available,
-                    'is_downloadable': related.is_downloadable,
-                    'date_added': related.date_added,
-                })
-            return related_items
+            return [
+                self._related_product_payload(pp, include_pdf=True)
+                for pp in self._package_products(obj)
+            ]
         return []
 
     def to_representation(self, instance):
@@ -1665,8 +1672,16 @@ class PurchasedBookSerializer(serializers.ModelSerializer):
         if not product or product.type != 'package':
             return []
         
-        from .models import PackageProduct
-        package_products = PackageProduct.objects.filter(package_product=product).select_related('related_product').order_by('-created_at')
+        package_products = getattr(product, 'prefetched_package_products', None)
+        if package_products is None:
+            from .models import PackageProduct
+            package_products = PackageProduct.objects.filter(package_product=product).select_related(
+                'related_product',
+                'related_product__subject',
+                'related_product__teacher',
+                'related_product__teacher__user',
+            ).order_by('-created_at')
+
         related_items = []
         request = self.context.get('request')
         for pp in package_products:
@@ -2007,6 +2022,7 @@ class PromoCodeSerializer(serializers.ModelSerializer):
     is_valid = serializers.SerializerMethodField()
     is_general = serializers.SerializerMethodField()
     created_by_name = serializers.SerializerMethodField()
+    used_by = serializers.SerializerMethodField()
     used_by_name = serializers.SerializerMethodField()
     used_by_username = serializers.SerializerMethodField()
 
@@ -2022,7 +2038,7 @@ class PromoCodeSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at',
         ]
         read_only_fields = [
-            'id', 'code', 'is_used', 'used_by', 'used_at',
+            'id', 'code', 'is_used', 'used_at',
             'created_at', 'updated_at', 'created_by',
         ]
 
@@ -2035,6 +2051,11 @@ class PromoCodeSerializer(serializers.ModelSerializer):
     def get_created_by_name(self, obj):
         if obj.created_by:
             return obj.created_by.name or obj.created_by.username
+        return None
+
+    def get_used_by(self, obj):
+        if obj.used_by:
+            return obj.used_by.name or obj.used_by.username
         return None
 
     def get_used_by_name(self, obj):
@@ -2131,8 +2152,6 @@ class RedeemPromoCodeSerializer(serializers.Serializer):
             'book': PromoCodeBookSerializer(product).data,
             'already_owned': not created,
         }
-
-
 
 
 

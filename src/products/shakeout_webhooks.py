@@ -11,6 +11,15 @@ from services.shakeout_service import shakeout_service
 
 logger = logging.getLogger(__name__)
 
+
+def _request_summary(request):
+    return {
+        'method': request.method,
+        'content_type': request.headers.get('content-type'),
+        'content_length': request.headers.get('content-length') or len(request.body or b''),
+    }
+
+
 @csrf_exempt
 @require_http_methods(["GET", "POST", "HEAD"])
 def shakeout_webhook(request):
@@ -41,10 +50,7 @@ def handle_shakeout_webhook_post(request):
     Handle actual Shake-out webhook POST requests
     """
     try:
-        # Log the incoming webhook
-        logger.info("=== Shake-out Webhook Received ===")
-        logger.info(f"Headers: {dict(request.headers)}")
-        logger.info(f"Body: {request.body.decode('utf-8')}")
+        logger.info("Shake-out webhook received: %s", _request_summary(request))
         
         # Parse the webhook payload
         try:
@@ -67,7 +73,14 @@ def handle_shakeout_webhook_post(request):
         reference_number = data.get('referenceNumber')
         updated_at = data.get('updated_at')
         
-        logger.info(f"Webhook Data - Type: {event_type}, Invoice ID: {invoice_id}, Status: {invoice_status}, Amount: {amount}")
+        logger.info(
+            "Shake-out webhook data: type=%s invoice_id=%s status=%s amount=%s signature_present=%s",
+            event_type,
+            invoice_id,
+            invoice_status,
+            amount,
+            bool(received_signature),
+        )
         
         # Validate required fields
         if not invoice_id or not invoice_status or not amount or not updated_at:
@@ -80,10 +93,10 @@ def handle_shakeout_webhook_post(request):
                 invoice_id, amount, invoice_status, updated_at, received_signature
             )
             if not is_valid_signature:
-                logger.error("❌ Invalid webhook signature - potential security threat!")
+                logger.error("Invalid Shake-out webhook signature for invoice_id=%s", invoice_id)
                 return JsonResponse({'error': 'Invalid signature'}, status=401)
             else:
-                logger.info("✅ Webhook signature verified successfully")
+                logger.info("Shake-out webhook signature verified for invoice_id=%s", invoice_id)
         else:
             logger.warning("⚠️ No signature provided in webhook")
         
@@ -103,10 +116,12 @@ def handle_shakeout_webhook_post(request):
         # Update pill payment status based on Shake-out status
         payment_updated = update_pill_payment_status(pill, invoice_status, data)
         
-        # Log the status update
-        logger.info(f"Processing webhook for Pill #{pill.pill_number}")
-        logger.info(f"Shake-out Status: {invoice_status}")
-        logger.info(f"Payment Status Updated: {payment_updated}")
+        logger.info(
+            "Processed Shake-out webhook for pill_id=%s status=%s payment_updated=%s",
+            pill.id,
+            invoice_status,
+            payment_updated,
+        )
         
         # Store webhook data for audit trail
         store_shakeout_webhook_data(pill, payload)
@@ -121,7 +136,7 @@ def handle_shakeout_webhook_post(request):
             'shakeout_status': invoice_status
         }
         
-        logger.info(f"Webhook processed successfully: {response_data}")
+        logger.info("Shake-out webhook processed successfully for pill_id=%s", pill.id)
         return JsonResponse(response_data, status=200)
         
     except Exception as e:

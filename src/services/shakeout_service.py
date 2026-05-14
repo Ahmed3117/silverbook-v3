@@ -10,6 +10,35 @@ from django.utils import timezone
 from services.customer_profile import get_customer_profile
 
 logger = logging.getLogger(__name__)
+CREATE_INVOICE_TIMEOUT = (5, 12)
+ERROR_TEXT_LIMIT = 200
+
+
+def _response_summary(response):
+    return {
+        'status_code': response.status_code,
+        'content_type': response.headers.get('content-type'),
+        'content_length': response.headers.get('content-length') or len(response.content or b''),
+    }
+
+
+def _safe_response_error(response):
+    try:
+        error_data = response.json()
+        if isinstance(error_data, dict):
+            return (
+                error_data.get('error')
+                or error_data.get('message')
+                or error_data.get('detail')
+                or f'HTTP {response.status_code}'
+            )
+    except (ValueError, TypeError):
+        pass
+
+    text = (response.text or '').strip()
+    if not text:
+        return f'HTTP {response.status_code}'
+    return f'HTTP {response.status_code}: {text[:ERROR_TEXT_LIMIT]}'
 
 class ShakeoutService:
     def __init__(self):
@@ -49,7 +78,7 @@ class ShakeoutService:
     def create_payment_invoice(self, pill):
         """Create a payment invoice with Shake-out"""
         try:
-            logger.info(f"Creating Shake-out invoice for pill {pill.pill_number}")
+            logger.info("Creating Shake-out invoice for pill_id=%s pill_number=%s", pill.id, pill.pill_number)
             
             # Check if pill already has a Shake-out invoice
             if pill.shakeout_invoice_id:
@@ -125,32 +154,27 @@ class ShakeoutService:
                 "discount_value": discount_value
             }
             
-            logger.info(f"Making request to: {self.base_url}")
-            logger.info(f"Invoice data: {json.dumps(invoice_data, indent=2)}")
-            logger.info("Redirect URLs:")
-            logger.info(f"  Success: {invoice_data['redirection_urls']['success_url']}")
-            logger.info(f"  Pending: {invoice_data['redirection_urls']['pending_url']}")
-            logger.info(f"  Fail: {invoice_data['redirection_urls']['fail_url']}")
+            logger.info(
+                "Shake-out invoice payload prepared for pill_id=%s: amount=%s, items=%s",
+                pill.id,
+                final_amount,
+                len(invoice_items),
+            )
             
             # Make API request with session and retry logic
             session = requests.Session()
             session.headers.update(self.headers)
             
-            # Add SSL verification and additional session configuration
             session.verify = True
-            session.timeout = 30
             
             try:
-                # First attempt
                 response = session.post(
                     self.create_invoice_url,
                     json=invoice_data,
-                    timeout=30
+                    timeout=CREATE_INVOICE_TIMEOUT
                 )
                 
-                logger.info(f"Shake-out response: {response.status_code}")
-                logger.info(f"Response headers: {dict(response.headers)}")
-                logger.info(f"Response content (first 1000 chars): {response.text[:1000]}")
+                logger.info("Shake-out create invoice response summary: %s", _response_summary(response))
                 
                 # Check if response is empty
                 if not response.text.strip():
@@ -161,41 +185,14 @@ class ShakeoutService:
                         'data': None
                     }
                 
-                # If we get a Cloudflare challenge or HTML response
                 if (response.status_code == 403 and 'cloudflare' in response.text.lower()) or \
                    (response.headers.get('content-type', '').startswith('text/html')):
-                    logger.warning("Received Cloudflare challenge or HTML response, retrying with different approach...")
-                    
-                    # Try with curl-like headers to appear more like a legitimate client
-                    retry_headers = {
-                        'Content-Type': 'application/json',
-                        'Authorization': f'apikey {self.api_key}',
-                        'User-Agent': 'curl/7.68.0',
-                        'Accept': '*/*',
-                        'Connection': 'keep-alive'
+                    logger.warning("Received Cloudflare challenge or HTML response from Shake-out API")
+                    return {
+                        'success': False,
+                        'error': f'Shake-out API blocked by Cloudflare protection. HTTP {response.status_code}. Consider using a different approach or contact Shake-out support.',
+                        'data': None
                     }
-                    
-                    # Wait a moment before retry
-                    import time
-                    time.sleep(3)
-                    
-                    response = session.post(
-                        self.create_invoice_url,
-                        json=invoice_data,
-                        headers=retry_headers,
-                        timeout=30
-                    )
-                    
-                    logger.info(f"Retry response: {response.status_code}")
-                    logger.info(f"Retry response content (first 1000 chars): {response.text[:1000]}")
-                    
-                    # If still getting HTML/empty response after retry
-                    if not response.text.strip() or response.headers.get('content-type', '').startswith('text/html'):
-                        return {
-                            'success': False,
-                            'error': f'Shake-out API blocked by Cloudflare protection. HTTP {response.status_code}. Consider using a different approach or contact Shake-out support.',
-                            'data': None
-                        }
                 
             finally:
                 session.close()
@@ -234,7 +231,6 @@ class ShakeoutService:
                         
                 except json.JSONDecodeError as e:
                     logger.error(f"Failed to decode JSON response: {e}")
-                    logger.error(f"Raw response: {response.text}")
                     return {
                         'success': False,
                         'error': f'Invalid JSON response from Shake-out API: {str(e)}',
@@ -247,9 +243,10 @@ class ShakeoutService:
                     return self._handle_api_error_response(error_data)
                 except json.JSONDecodeError:
                     # Response is not JSON (probably HTML error page)
+                    error_message = _safe_response_error(response)
                     return {
                         'success': False,
-                        'error': f'HTTP {response.status_code}: {response.text[:200]}...' if len(response.text) > 200 else f'HTTP {response.status_code}: {response.text}',
+                        'error': error_message,
                         'data': None
                     }
                 

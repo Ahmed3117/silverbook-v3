@@ -91,22 +91,26 @@ class UserSerializer(serializers.ModelSerializer):
     def validate(self, data):
         """Validate username format based on user_type"""
         import re
-        
+
         username = data.get('username')
         user_type = data.get('user_type')
-        
+
         # For updates, get the current user_type if not provided
         if self.instance and not user_type:
             user_type = self.instance.user_type
-        
-        # Only validate phone format for students
-        if user_type == 'student' and username:
+
+        # Check if this is an admin request (admin-created students can have any phone format)
+        request = self.context.get('request')
+        is_admin_request = request and getattr(request, 'user', None) and request.user.is_staff
+
+        # Only validate phone format for students if NOT an admin request
+        if user_type == 'student' and username and not is_admin_request:
             # Check if it matches Egyptian phone pattern (starts with 01 and has 11 digits)
             if not re.match(r'^01[0-2,5]{1}[0-9]{8}$', username):
                 raise serializers.ValidationError({
                     'username': 'بالنسبة للطلاب، يجب أن يكون اسم المستخدم رقم هاتف مصري صالح (مثل 01012345678)'
                 })
-        
+
         return data
     
     def update(self, instance, validated_data):
@@ -296,6 +300,9 @@ class UserOrderSerializer(serializers.ModelSerializer):
         return None
 
     def get_items_count(self, obj):
+        prefetched_items = getattr(obj, '_prefetched_objects_cache', {}).get('items')
+        if prefetched_items is not None:
+            return len(prefetched_items)
         return obj.items.count()
 
 

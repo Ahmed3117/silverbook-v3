@@ -2,7 +2,7 @@ from datetime import timedelta
 import random
 import logging
 from django.shortcuts import get_object_or_404, render
-from django.db.models import Count, Sum, F, Avg
+from django.db.models import Count, Sum, F, Avg, Prefetch
 from django.db import transaction
 import json
 import mimetypes
@@ -25,14 +25,56 @@ from rest_framework.views import APIView
 from .serializers import *
 from .filters import CouponDiscountFilter, PillFilter, ProductFilter, PurchasedBookFilter, BookPublishRequestFilter, PromoCodeFilter
 from .models import (
-    CouponDiscount,
+    BestProduct, CouponDiscount, Discount, PackageProduct, SpecialProduct,
     ProductImage, Product, Pill,
     PurchasedBook, PillItem, Subject, Teacher, BookPublishRequest,
     PromoCode,
 )
 from accounts.models import User
 from .permissions import IsOwner, IsOwnerOrReadOnly
+from .querysets import optimize_pill_queryset, optimize_purchased_book_queryset
 from services.s3_service import s3_service
+
+
+def _active_discount_queryset():
+    now = timezone.now()
+    return Discount.objects.filter(
+        is_active=True,
+        discount_start__lte=now,
+        discount_end__gte=now,
+    ).order_by('-discount', '-discount_end')
+
+
+def _package_product_queryset():
+    return PackageProduct.objects.select_related(
+        'related_product',
+        'related_product__subject',
+        'related_product__teacher',
+        'related_product__teacher__user',
+    ).order_by('-created_at')
+
+
+def optimize_product_queryset(queryset):
+    return queryset.select_related(
+        'subject',
+        'teacher',
+        'teacher__user',
+    ).prefetch_related(
+        Prefetch('discounts', queryset=_active_discount_queryset(), to_attr='prefetched_active_discounts'),
+        Prefetch('package_products', queryset=_package_product_queryset(), to_attr='prefetched_package_products'),
+    )
+
+
+def optimize_featured_product_queryset(queryset):
+    return queryset.select_related(
+        'product',
+        'product__subject',
+        'product__teacher',
+        'product__teacher__user',
+    ).prefetch_related(
+        Prefetch('product__discounts', queryset=_active_discount_queryset(), to_attr='prefetched_active_discounts'),
+        Prefetch('product__package_products', queryset=_package_product_queryset(), to_attr='prefetched_package_products'),
+    )
 
 class SubjectListView(generics.ListAPIView):
     queryset = Subject.objects.all()
@@ -61,40 +103,52 @@ class TeacherDetailView(generics.RetrieveAPIView):
         return Response(serializer.data)
 
 class ProductListView(generics.ListAPIView):
-    queryset = Product.objects.filter(is_available=True)
     permission_classes = [IsAuthenticated]
     serializer_class = ProductSerializer
     filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter]
     filterset_class = ProductFilter
     search_fields = ['name', 'subject__name' , 'teacher__user__name', 'description']
 
+    def get_queryset(self):
+        return optimize_product_queryset(
+            Product.objects.filter(is_available=True).order_by('order', '-date_added')
+        )
+
 
 class ProductDetailView(generics.RetrieveAPIView):
-    queryset = Product.objects.all()
     permission_classes = [IsAuthenticated]
     serializer_class = ProductSerializer
     lookup_field = 'id'
 
+    def get_queryset(self):
+        return optimize_product_queryset(Product.objects.all())
+
 class Last10ProductsListView(generics.ListAPIView):
-    queryset = Product.objects.all()
     permission_classes = [IsAuthenticated]
     serializer_class = ProductSerializer
     filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter]
     filterset_class = ProductFilter
+
+    def get_queryset(self):
+        return optimize_product_queryset(Product.objects.all().order_by('order', '-date_added'))
 
 class ActiveSpecialProductsView(generics.ListAPIView):
     serializer_class = SpecialProductSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return SpecialProduct.objects.filter(is_active=True).order_by('-order')
+        return optimize_featured_product_queryset(
+            SpecialProduct.objects.filter(is_active=True).order_by('-order')
+        )
     
 class ActiveBestProductsView(generics.ListAPIView):
     serializer_class = BestProductSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return BestProduct.objects.filter(is_active=True).order_by('-order')
+        return optimize_featured_product_queryset(
+            BestProduct.objects.filter(is_active=True).order_by('-order')
+        )
 
 
 
@@ -117,7 +171,7 @@ class CombinedProductsView(APIView):
         return Response(data, status=status.HTTP_200_OK)
     
     def get_last_products(self, limit):
-        queryset = Product.objects.all().order_by('order', '-id')[:limit]
+        queryset = optimize_product_queryset(Product.objects.all().order_by('order', '-id'))[:limit]
         serializer = ProductSerializer(queryset, many=True, context={'request': self.request})
         return serializer.data
     
@@ -126,9 +180,9 @@ class CombinedProductsView(APIView):
         return []
     
     def get_year_products(self, year, limit):
-        queryset = Product.objects.filter(
+        queryset = optimize_product_queryset(Product.objects.filter(
             year=year
-        ).order_by('order', '-date_added')[:limit]
+        ).order_by('order', '-date_added'))[:limit]
         serializer = ProductSerializer(queryset, many=True, context={'request': self.request})
         return serializer.data
 
@@ -149,9 +203,9 @@ class SpecialBestProductsView(APIView):
     
     def get_special_products(self, limit):
         # Get the special products with their related product data
-        special_products = SpecialProduct.objects.filter(
+        special_products = optimize_featured_product_queryset(SpecialProduct.objects.filter(
             is_active=True
-        ).order_by('-order')[:limit].select_related('product')
+        ).order_by('-order'))[:limit]
         
         # Serialize with additional fields
         result = []
@@ -173,9 +227,9 @@ class SpecialBestProductsView(APIView):
     
     def get_best_products(self, limit):
         # Get the best products with their related product data
-        best_products = BestProduct.objects.filter(
+        best_products = optimize_featured_product_queryset(BestProduct.objects.filter(
             is_active=True
-        ).order_by('-order')[:limit].select_related('product')
+        ).order_by('-order'))[:limit]
         
         # Serialize with additional fields
         result = []
@@ -235,10 +289,10 @@ class TeacherProductsView(APIView):
         return Response(data, status=status.HTTP_200_OK)
     
     def get_books(self, teacher, limit, is_important):
-        queryset = Product.objects.filter(
+        queryset = optimize_product_queryset(Product.objects.filter(
             teacher=teacher,
             type='book'
-        )
+        ))
         
         if is_important:
             queryset = queryset.filter(is_important=True)
@@ -248,10 +302,10 @@ class TeacherProductsView(APIView):
         return serializer.data
     
     def get_products(self, teacher, limit, is_important):
-        queryset = Product.objects.filter(
+        queryset = optimize_product_queryset(Product.objects.filter(
             teacher=teacher,
             type='product'
-        )
+        ))
         
         if is_important:
             queryset = queryset.filter(is_important=True)
@@ -298,14 +352,16 @@ class PillCouponApplyView(generics.GenericAPIView):
 
 
 class PillDetailView(generics.RetrieveAPIView, PillItemPermissionMixin):
-    queryset = Pill.objects.all()
     serializer_class = PillDetailSerializer
     lookup_field = 'id'
     permission_classes = [IsAuthenticated]
 
+    def get_queryset(self):
+        return optimize_pill_queryset(Pill.objects.filter(user=self.request.user))
+
     def get_object(self):
         pill_id = self.kwargs.get('id')
-        return get_object_or_404(Pill, id=pill_id, user=self.request.user)
+        return get_object_or_404(self.get_queryset(), id=pill_id)
 
 class UserPillsView(generics.ListAPIView):
     serializer_class = PillDetailSerializer
@@ -314,7 +370,9 @@ class UserPillsView(generics.ListAPIView):
     def get_queryset(self):
         # Allow filtering by pill status via query param `status`.
         # Example: ?status=p  or ?status=p,i (comma-separated)
-        queryset = Pill.objects.filter(user=self.request.user).order_by('-date_added')
+        queryset = optimize_pill_queryset(
+            Pill.objects.filter(user=self.request.user)
+        ).order_by('-date_added')
         status_param = self.request.query_params.get('status')
         if status_param:
             statuses = [s.strip() for s in status_param.split(',') if s.strip()]
@@ -418,11 +476,9 @@ class PurchasedBookListView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return (
+        return optimize_purchased_book_queryset(
             PurchasedBook.objects.filter(user=self.request.user)
-            .select_related('product', 'product__teacher', 'pill')
-            .order_by('-created_at')
-        )
+        ).order_by('-created_at')
 
 
 class PurchasedBookPDFDownloadView(APIView):
@@ -596,7 +652,9 @@ class ProductsWithActiveDiscountAPIView(APIView):
             discount_end__gte=now,
             product__isnull=False
         ).values_list('product_id', flat=True)
-        products = Product.objects.filter(id__in=product_discounts).distinct()
+        products = optimize_product_queryset(
+            Product.objects.filter(id__in=product_discounts).distinct().order_by('order', '-date_added')
+        )
         serializer = ProductSerializer(products, many=True, context={'request': request})
         return Response(serializer.data, status=status.HTTP_200_OK)
 
@@ -610,9 +668,13 @@ class LovedProductListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         return LovedProduct.objects.filter(user=self.request.user).select_related(
-            'product', 'product__subject', 
-            'product__teacher'
-        ).prefetch_related('product__images')
+            'product', 'product__subject',
+            'product__teacher', 'product__teacher__user',
+        ).prefetch_related(
+            Prefetch('product__discounts', queryset=_active_discount_queryset(), to_attr='prefetched_active_discounts'),
+            Prefetch('product__package_products', queryset=_package_product_queryset(), to_attr='prefetched_package_products'),
+            'product__images',
+        )
 
     def perform_create(self, serializer):
         serializer.save()
@@ -624,9 +686,13 @@ class LovedProductRetrieveDestroyView(generics.RetrieveDestroyAPIView):
 
     def get_queryset(self):
         return LovedProduct.objects.filter(user=self.request.user).select_related(
-            'product', 'product__subject', 
-            'product__teacher'
-        ).prefetch_related('product__images')
+            'product', 'product__subject',
+            'product__teacher', 'product__teacher__user',
+        ).prefetch_related(
+            Prefetch('product__discounts', queryset=_active_discount_queryset(), to_attr='prefetched_active_discounts'),
+            Prefetch('product__package_products', queryset=_package_product_queryset(), to_attr='prefetched_package_products'),
+            'product__images',
+        )
 
     def get_object(self):
         product_id = self.kwargs.get('product_id')
@@ -642,7 +708,7 @@ class NewArrivalsView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        queryset = Product.objects.all().order_by('-date_added')
+        queryset = optimize_product_queryset(Product.objects.all()).order_by('-date_added')
         days = self.request.query_params.get('days', None)
         if days:
             date_threshold = timezone.now() - timedelta(days=int(days))
@@ -656,18 +722,18 @@ class BestSellersView(generics.ListAPIView):
 
     def get_queryset(self):
         # Get products with paid/delivered items
-        queryset = Product.objects.annotate(
+        queryset = optimize_product_queryset(Product.objects.annotate(
             total_sold=Sum(
                 Case(
                     When(
                         pill_items__status__in=['p'],
-                        then='pill_items__quantity'
+                        then=1
                     ),
                     default=0,
                     output_field=IntegerField()
                 )
             )
-        ).filter(
+        )).filter(
             total_sold__gt=0
         ).order_by('-total_sold')
         
@@ -681,7 +747,7 @@ class BestSellersView(generics.ListAPIView):
                         When(
                             pill_items__status__in=['p'],
                             pill_items__date_sold__gte=date_threshold,
-                            then='pill_items__quantity'
+                            then=1
                         ),
                         default=0,
                         output_field=IntegerField()
@@ -708,10 +774,10 @@ class FrequentlyBoughtTogetherView(generics.ListAPIView):
         ).values_list('pill_id', flat=True)
         
         # Find other products in those pills
-        frequent_products = Product.objects.filter(
+        frequent_products = optimize_product_queryset(Product.objects.filter(
             pill_items__pill_id__in=pill_ids,
             pill_items__status__in=['p']
-        ).exclude(
+        )).exclude(
             id=product_id
         ).annotate(
             co_purchase_count=Count('pill_items__id')
@@ -730,24 +796,27 @@ class ProductRecommendationsView(generics.ListAPIView):
         recommendations = []
         
         if current_product_id:
-            current_product = get_object_or_404(Product, id=current_product_id)
-            similar_products = Product.objects.filter(
+            current_product = get_object_or_404(
+                Product.objects.select_related('subject', 'teacher'),
+                id=current_product_id
+            )
+            similar_products = optimize_product_queryset(Product.objects.filter(
                 Q(subject=current_product.subject) |
                 Q(teacher=current_product.teacher)
-            ).exclude(id=current_product_id).distinct()
+            )).exclude(id=current_product_id).distinct()
             recommendations.extend(list(similar_products))
         
         # Loved products
-        loved_products = Product.objects.filter(
+        loved_products = optimize_product_queryset(Product.objects.filter(
             lovedproduct__user=user
-        ).exclude(id__in=[p.id for p in recommendations]).distinct()
+        )).exclude(id__in=[p.id for p in recommendations]).distinct()
         recommendations.extend(list(loved_products))
         
         # Purchased products (using PillItem now)
-        purchased_products = Product.objects.filter(
+        purchased_products = optimize_product_queryset(Product.objects.filter(
             pill_items__user=user,
             pill_items__status__in=['p']
-        ).exclude(id__in=[p.id for p in recommendations]).distinct()
+        )).exclude(id__in=[p.id for p in recommendations]).distinct()
         recommendations.extend(list(purchased_products))
         
         # Deduplicate
@@ -1148,7 +1217,6 @@ class TeacherRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
     
 
 class ProductListCreateView(generics.ListCreateAPIView):
-    queryset = Product.objects.all()
     serializer_class = AdminProductSerializer
     filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter, OrderingFilter]
     filterset_class = ProductFilter
@@ -1157,6 +1225,9 @@ class ProductListCreateView(generics.ListCreateAPIView):
     ordering = ['-date_added']
     pagination_class = CustomPageNumberPagination
     permission_classes = [IsAdminUser]  # Changed for testing - change back to IsAdminUser in production
+
+    def get_queryset(self):
+        return optimize_product_queryset(Product.objects.all())
 
 class ProductListBreifedView(generics.ListCreateAPIView):
     queryset = Product.objects.all()
@@ -1208,13 +1279,15 @@ class ProductReorderView(APIView):
 
 class ProductSimpleListView(generics.ListAPIView):
     """Simple product list endpoint with minimal fields for dropdowns/selections"""
-    queryset = Product.objects.all()
     serializer_class = SimpleProductSerializer
     filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter]
     filterset_fields = ['is_available', 'type', 'teacher', 'subject','year']
     search_fields = ['name']
     permission_classes = [IsAdminUser]
     pagination_class = None  # Disable pagination for direct list response
+
+    def get_queryset(self):
+        return Product.objects.select_related('subject', 'teacher', 'teacher__user').all()
 
 class SubjectSimpleListView(generics.ListAPIView):
     """Simple subject list endpoint with minimal fields for dropdowns/selections"""
@@ -1236,9 +1309,11 @@ class TeacherSimpleListView(generics.ListAPIView):
     pagination_class = None  # Disable pagination for direct list response
 
 class ProductRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = Product.objects.all()
     serializer_class = AdminProductSerializer
     permission_classes = [IsAdminUser]
+
+    def get_queryset(self):
+        return optimize_product_queryset(Product.objects.all())
 
 class ProductImageListCreateView(generics.ListCreateAPIView):
     queryset = ProductImage.objects.all()
@@ -1324,7 +1399,6 @@ class ProductImageDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAdminUser]
 
 class SpecialProductListCreateView(generics.ListCreateAPIView):
-    queryset = SpecialProduct.objects.all()
     serializer_class = AdminSpecialProductSerializer
     filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter, OrderingFilter]
     filterset_fields = ['is_active', 'product']
@@ -1335,17 +1409,21 @@ class SpecialProductListCreateView(generics.ListCreateAPIView):
     # Allow multipart/form-data for file uploads
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
+    def get_queryset(self):
+        return optimize_featured_product_queryset(SpecialProduct.objects.all())
+
     def perform_create(self, serializer):
         serializer.save()
 
 class SpecialProductRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = SpecialProduct.objects.all()
     serializer_class = AdminSpecialProductSerializer
     permission_classes = [IsAdminUser]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
+    def get_queryset(self):
+        return optimize_featured_product_queryset(SpecialProduct.objects.all())
+
 class BestProductListCreateView(generics.ListCreateAPIView):
-    queryset = BestProduct.objects.all()
     serializer_class = AdminBestProductSerializer
     filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter, OrderingFilter]
     filterset_fields = ['is_active', 'product']
@@ -1354,13 +1432,18 @@ class BestProductListCreateView(generics.ListCreateAPIView):
     ordering = ['-order', '-created_at']
     permission_classes = [IsAdminUser]
 
+    def get_queryset(self):
+        return optimize_featured_product_queryset(BestProduct.objects.all())
+
     def perform_create(self, serializer):
         serializer.save()
 
 class BestProductRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = BestProduct.objects.all()
     serializer_class = AdminBestProductSerializer
     permission_classes = [IsAdminUser]
+
+    def get_queryset(self):
+        return optimize_featured_product_queryset(BestProduct.objects.all())
 
 from django.db.models import Prefetch
 
@@ -1806,10 +1889,7 @@ class AdminPurchasedBookListCreateView(generics.ListCreateAPIView):
              product_name, username, user_name
     Search: product_name, user__username, user__name
     """
-    queryset = PurchasedBook.objects.all().select_related(
-        'user', 'product', 'pill', 'pill_item',
-        'product__subject', 'product__teacher'
-    )
+    queryset = optimize_purchased_book_queryset()
     serializer_class = PurchasedBookSerializer
     permission_classes = [IsAdminUser]
     filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter, OrderingFilter]
@@ -1970,9 +2050,8 @@ class AdminUserPurchasedBooksView(generics.ListAPIView):
 
     def get_queryset(self):
         user_id = self.kwargs.get('user_id')
-        return PurchasedBook.objects.filter(user_id=user_id).select_related(
-            'user', 'product', 'pill', 'pill_item',
-            'product__subject', 'product__teacher'
+        return optimize_purchased_book_queryset(
+            PurchasedBook.objects.filter(user_id=user_id)
         )
 
     # Optionally, allow ordering and searching if needed
@@ -1989,9 +2068,7 @@ class AdminPurchasedBookRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroy
     PATCH /products/dashboard/purchased-books/<id>/
     DELETE /products/dashboard/purchased-books/<id>/
     """
-    queryset = PurchasedBook.objects.all().select_related(
-        'user', 'product', 'pill', 'pill_item'
-    )
+    queryset = optimize_purchased_book_queryset()
     serializer_class = PurchasedBookSerializer
     permission_classes = [IsAdminUser]
 
@@ -2559,4 +2636,3 @@ class RedeemPromoCodeView(APIView):
         serializer.is_valid(raise_exception=True)
         result = serializer.save(user=request.user)
         return Response(result, status=status.HTTP_200_OK)
-

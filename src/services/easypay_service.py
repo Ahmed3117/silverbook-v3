@@ -10,6 +10,38 @@ from django.utils import timezone
 from services.customer_profile import get_customer_profile
 
 logger = logging.getLogger(__name__)
+CREATE_INVOICE_TIMEOUT = (5, 12)
+DETAILS_TIMEOUT = (3, 8)
+STATUS_TIMEOUT = (5, 10)
+CANCEL_TIMEOUT = (5, 10)
+ERROR_TEXT_LIMIT = 200
+
+
+def _response_summary(response):
+    return {
+        'status_code': response.status_code,
+        'content_type': response.headers.get('content-type'),
+        'content_length': response.headers.get('content-length') or len(response.content or b''),
+    }
+
+
+def _safe_response_error(response):
+    try:
+        error_data = response.json()
+        if isinstance(error_data, dict):
+            return (
+                error_data.get('error')
+                or error_data.get('message')
+                or error_data.get('detail')
+                or f'HTTP {response.status_code}'
+            )
+    except (ValueError, TypeError):
+        pass
+
+    text = (response.text or '').strip()
+    if not text:
+        return f'HTTP {response.status_code}'
+    return f'HTTP {response.status_code}: {text[:ERROR_TEXT_LIMIT]}'
 
 class EasyPayService:
     def __init__(self):
@@ -41,24 +73,14 @@ class EasyPayService:
         string_to_hash = f"{self.vendor_code}{self.secret_key}{amount}{profile_id}{phone}"
         signature = hashlib.sha256(string_to_hash.encode('utf-8')).hexdigest()
         
-        logger.debug(f"String to hash: {string_to_hash}")
-        logger.debug(f"Generated signature: {signature}")
+        logger.debug("EasyPay invoice signature generated for profile_id=%s amount=%s", profile_id, amount)
         
         return signature
 
     def create_payment_invoice(self, pill):
         """Create a payment invoice with EasyPay"""
         try:
-            logger.info(f"Creating EasyPay invoice for pill {pill.pill_number}")
-            
-            # Log pill details for debugging
-            pill_items_count = pill.items.count()
-            logger.info(f"Pill has {pill_items_count} items")
-            if pill_items_count > 0:
-                for i, item in enumerate(pill.items.all()[:5]):  # Log first 5 items
-                    logger.info(f"  Item {i+1}: {item.product.name} (ID: {item.id})")
-                if pill_items_count > 5:
-                    logger.info(f"  ... and {pill_items_count - 5} more items")
+            logger.info("Creating EasyPay invoice for pill_id=%s pill_number=%s", pill.id, pill.pill_number)
             
             profile = get_customer_profile(pill)
 
@@ -87,8 +109,13 @@ class EasyPayService:
             # So we'll create one consolidated item for the entire order to avoid calculation issues
             items = []
             
-            # Get all pill items for description
-            pill_items = pill.items.all()
+            # Get all pill items once for the invoice description without per-item logging.
+            pill_items = list(pill.items.select_related('product').all())
+            logger.info(
+                "EasyPay invoice items prepared for pill_id=%s: item_count=%s",
+                pill.id,
+                len(pill_items),
+            )
             
             if pill_items:
                 # Create a description that includes all products
@@ -137,24 +164,23 @@ class EasyPayService:
             if self.webhook_url:
                 payload["webhook_url"] = self.webhook_url
             
-            # Log the final payload for debugging
-            logger.info(f"EasyPay request payload:")
-            logger.info(f"  - Amount: {amount}")
-            logger.info(f"  - Items count: {len(items)}")
-            logger.info(f"  - Items: {json.dumps(items, indent=4)}")
-            logger.info(f"  - Customer: {payload['customer']}")
-            logger.info(f"  - Full payload: {json.dumps(payload, indent=2)}")
+            logger.info(
+                "EasyPay request payload prepared for pill %s: amount=%s, items=%s, customer_profile_id=%s",
+                pill.pill_number,
+                amount,
+                len(items),
+                profile_id,
+            )
             
             # Make API request
             response = requests.post(
                 self.create_invoice_url,
                 headers=self.headers,
                 json=payload,
-                timeout=30
+                timeout=CREATE_INVOICE_TIMEOUT
             )
             
-            logger.info(f"EasyPay API response status: {response.status_code}")
-            logger.info(f"EasyPay API response: {response.text}")
+            logger.info("EasyPay create invoice response summary: %s", _response_summary(response))
             
             # Accept both 200 (OK) and 201 (Created) as successful responses
             if response.status_code in [200, 201]:
@@ -170,49 +196,55 @@ class EasyPayService:
                     
                     if invoice_details['success']:
                         invoice_data = invoice_details['data']
-                        
-                        # Construct payment URL (assuming it follows a pattern)
-                        payment_url = f"https://stu.easy-adds.com/invoice/{invoice_uid}/{invoice_sequence}"
-                        
-                        result_data = {
-                            'invoice_sequence': invoice_sequence,
-                            'invoice_uid': invoice_uid,
-                            'payment_url': payment_url,
-                            'invoice_details': invoice_data,
-                            'amount': amount,
-                            'customer_phone': customer_phone,
-                            'profile_id': profile_id,
-                            'payment_method': self.payment_method,
-                            'created_at': timezone.now().isoformat()
-                        }
-                        
-                        logger.info(f"✓ EasyPay invoice created successfully for pill {pill.pill_number}")
-                        logger.info(f"  - Invoice UID: {invoice_uid}")
-                        logger.info(f"  - Invoice Sequence: {invoice_sequence}")
-                        logger.info(f"  - Payment URL: {payment_url}")
-                        
-                        return {
-                            'success': True,
-                            'data': result_data
-                        }
                     else:
-                        logger.error(f"Failed to get invoice details: {invoice_details['error']}")
-                        return {
-                            'success': False,
-                            'error': f"Invoice created but failed to get details: {invoice_details['error']}"
+                        logger.warning(
+                            "EasyPay invoice was created for pill %s but details lookup failed: %s",
+                            pill.pill_number,
+                            invoice_details['error'],
+                        )
+                        invoice_data = {
+                            'details_lookup_error': invoice_details['error'],
+                            'fawry_ref': None,
                         }
+
+                    # Construct payment URL (assuming it follows a pattern)
+                    payment_url = f"https://stu.easy-adds.com/invoice/{invoice_uid}/{invoice_sequence}"
+
+                    result_data = {
+                        'invoice_sequence': invoice_sequence,
+                        'invoice_uid': invoice_uid,
+                        'payment_url': payment_url,
+                        'invoice_details': invoice_data,
+                        'amount': amount,
+                        'customer_phone': customer_phone,
+                        'profile_id': profile_id,
+                        'payment_method': self.payment_method,
+                        'created_at': timezone.now().isoformat()
+                    }
+
+                    logger.info(
+                        "EasyPay invoice created for pill_id=%s invoice_uid=%s invoice_sequence=%s",
+                        pill.id,
+                        invoice_uid,
+                        invoice_sequence,
+                    )
+
+                    return {
+                        'success': True,
+                        'data': result_data
+                    }
                 else:
-                    logger.error(f"Missing invoice_sequence or invoice_uid in response: {response_data}")
+                    logger.error(
+                        "EasyPay create invoice response missing identifiers for pill_id=%s response_keys=%s",
+                        pill.id,
+                        sorted(response_data.keys()) if isinstance(response_data, dict) else type(response_data).__name__,
+                    )
                     return {
                         'success': False,
                         'error': 'Invalid response from EasyPay API - missing invoice identifiers'
                     }
             else:
-                try:
-                    error_data = response.json()
-                    error_message = error_data.get('error', f'HTTP {response.status_code}')
-                except:
-                    error_message = f'HTTP {response.status_code}: {response.text}'
+                error_message = _safe_response_error(response)
                 
                 logger.error(f"EasyPay API error: {error_message}")
                 return {
@@ -246,16 +278,19 @@ class EasyPayService:
         try:
             url = f"{self.get_invoice_url}/{invoice_uid}/{invoice_sequence}/"
             
-            logger.info(f"Getting EasyPay invoice details from: {url}")
+            logger.info(
+                "Getting EasyPay invoice details for invoice_uid=%s invoice_sequence=%s",
+                invoice_uid,
+                invoice_sequence,
+            )
             
             response = requests.get(
                 url,
                 headers=self.headers,
-                timeout=30
+                timeout=DETAILS_TIMEOUT
             )
             
-            logger.info(f"EasyPay get invoice response status: {response.status_code}")
-            logger.info(f"EasyPay get invoice response: {response.text}")
+            logger.info("EasyPay get invoice response summary: %s", _response_summary(response))
             
             # Accept both 200 (OK) and 201 (Created) as successful responses
             if response.status_code in [200, 201]:
@@ -265,11 +300,7 @@ class EasyPayService:
                     'data': invoice_data
                 }
             else:
-                try:
-                    error_data = response.json()
-                    error_message = error_data.get('error', f'HTTP {response.status_code}')
-                except:
-                    error_message = f'HTTP {response.status_code}: {response.text}'
+                error_message = _safe_response_error(response)
                 
                 logger.error(f"Failed to get EasyPay invoice details: {error_message}")
                 return {
@@ -320,9 +351,7 @@ class EasyPayService:
             string_to_hash = f"{amount}{customer_phone}{self.secret_key}"
             expected_signature = hashlib.sha256(string_to_hash.encode('utf-8')).hexdigest()
             
-            logger.debug(f"Webhook verification - String to hash: {string_to_hash}")
-            logger.debug(f"Expected signature: {expected_signature}")
-            logger.debug(f"Received signature: {received_signature}")
+            logger.debug("EasyPay webhook signature calculated for phone suffix=%s", str(customer_phone)[-4:])
             
             return expected_signature == received_signature
             
@@ -349,11 +378,10 @@ class EasyPayService:
                 status_check_url,
                 params=params,
                 headers=self.headers,
-                timeout=30
+                timeout=STATUS_TIMEOUT
             )
             
-            logger.info(f"EasyPay status check response status: {response.status_code}")
-            logger.info(f"EasyPay status check response: {response.text}")
+            logger.info("EasyPay status check response summary: %s", _response_summary(response))
             
             if response.status_code == 200:
                 response_data = response.json()
@@ -362,11 +390,11 @@ class EasyPayService:
                     'data': response_data
                 }
             else:
-                logger.error(f"EasyPay status check failed with status {response.status_code}: {response.text}")
+                logger.error("EasyPay status check failed: %s", _safe_response_error(response))
                 return {
                     'success': False,
                     'error': f"API returned status {response.status_code}",
-                    'response': response.text
+                    'response': _safe_response_error(response)
                 }
                 
         except requests.exceptions.RequestException as e:
@@ -405,8 +433,7 @@ class EasyPayService:
             signature_string = f"{ref_number}{self.vendor_code}{self.secret_key}"
             signature = hashlib.sha256(signature_string.encode("utf-8")).hexdigest()
             
-            logger.debug(f"Cancel signature string: {signature_string}")
-            logger.debug(f"Cancel signature: {signature}")
+            logger.debug("EasyPay cancel signature generated for ref_number=%s", ref_number)
             
             # Prepare payload
             payload = {
@@ -419,19 +446,17 @@ class EasyPayService:
             cancel_url = f"{self.base_url}/invoice-cancel/"
             
             logger.info(f"Sending cancel request to: {cancel_url}")
-            logger.info(f"Cancel payload: {json.dumps(payload, indent=2)}")
+            logger.info("EasyPay cancel payload prepared for ref_number: %s", ref_number)
             
             # Make API request
             response = requests.post(
                 cancel_url,
                 headers=self.headers,
                 json=payload,
-                timeout=30
+                timeout=CANCEL_TIMEOUT
             )
             
-            logger.info(f"EasyPay cancel response status: {response.status_code}")
-            logger.info(f"EasyPay cancel response headers: {dict(response.headers)}")
-            logger.info(f"EasyPay cancel response text: {response.text}")
+            logger.info("EasyPay cancel response summary: %s", _response_summary(response))
             
             # Accept 200 as successful response
             if response.status_code == 200:
@@ -452,21 +477,14 @@ class EasyPayService:
                         'data': response_data
                     }
                 except json.JSONDecodeError as e:
-                    logger.warning(f"⚠️ Cancel succeeded (HTTP 200) but response is not JSON: {response.text}")
+                    logger.warning("EasyPay cancel succeeded with non-JSON response for ref_number=%s", ref_number)
                     return {
                         'success': True,
-                        'data': {'raw_response': response.text}
+                        'data': {'raw_response': _safe_response_error(response)}
                     }
             else:
                 # Handle error responses
-                try:
-                    error_data = response.json()
-                    error_message = error_data.get('error', error_data.get('message', error_data.get('detail', f'HTTP {response.status_code}')))
-                except json.JSONDecodeError:
-                    # Response is not JSON, use raw text
-                    error_message = f'HTTP {response.status_code}: {response.text[:200]}'  # Limit length
-                except Exception as e:
-                    error_message = f'HTTP {response.status_code}'
+                error_message = _safe_response_error(response)
                 
                 logger.error(f"EasyPay cancel API error: {error_message}")
                 return {
