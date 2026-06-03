@@ -1419,11 +1419,13 @@ class UnpaidPillListSerializer(serializers.ModelSerializer):
             'id',
             'pill_number',
             'status_display',
+            'code',
         ]
         read_only_fields = [
             'id',
             'pill_number',
             'status_display',
+            'code',
         ]
 
     def get_status_display(self, obj):
@@ -1718,8 +1720,8 @@ class PillCouponApplySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Pill
-        fields = ['id', 'coupon_code', 'coupon', 'coupon_discount', 'final_price']
-        read_only_fields = ['id', 'coupon', 'coupon_discount', 'final_price']
+        fields = ['id', 'coupon_code', 'coupon', 'coupon_discount', 'final_price', 'code']
+        read_only_fields = ['id', 'coupon', 'coupon_discount', 'final_price', 'code']
 
     def to_internal_value(self, data):
         if isinstance(data, dict) and 'coupon' in data and 'coupon_code' not in data:
