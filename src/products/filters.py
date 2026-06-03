@@ -1,5 +1,5 @@
 
-from .models import Pill, Product, ProductImage, CouponDiscount, PurchasedBook, BookPublishRequest, PromoCode
+from .models import Pill, Product, ProductImage, CouponDiscount, PurchasedBook, BookPublishRequest, PromoCode, GiftCode
 from django_filters import rest_framework as filters
 from django.db.models import Q, F, FloatField, Case, When, Exists, OuterRef
 from django.utils import timezone
@@ -179,3 +179,14 @@ class PromoCodeFilter(filters.FilterSet):
                 Q(valid_from__gt=now) |
                 Q(valid_until__lt=now)
             )
+
+
+class GiftCodeFilter(filters.FilterSet):
+    code = filters.CharFilter(field_name='code', lookup_expr='icontains')
+    is_active = filters.BooleanFilter(field_name='is_active')
+    start_date = filters.DateFilter(field_name='created_at', lookup_expr='date__gte')
+    end_date = filters.DateFilter(field_name='created_at', lookup_expr='date__lte')
+
+    class Meta:
+        model = GiftCode
+        fields = ['code', 'is_active']

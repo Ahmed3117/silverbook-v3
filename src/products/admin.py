@@ -6,7 +6,7 @@ from django.http import HttpResponse
 from .models import (
     Subject, Teacher, Product, ProductImage,
     PillItem, Pill, CouponDiscount, Discount, LovedProduct,
-    SpecialProduct, BestProduct, PurchasedBook, PackageProduct
+    SpecialProduct, BestProduct, PurchasedBook, PackageProduct, GiftCode
 )
 
 import json
@@ -604,6 +604,14 @@ class CouponDiscountAdmin(admin.ModelAdmin):
     search_fields = ('coupon', 'user__username')
     readonly_fields = ('coupon',)
     autocomplete_fields = ['user']
+
+@admin.register(GiftCode)
+class GiftCodeAdmin(admin.ModelAdmin):
+    list_display = ('code', 'is_active', 'created_at', 'updated_at')
+    list_filter = ('is_active',)
+    search_fields = ('code',)
+    list_editable = ('is_active',)
+    ordering = ('-created_at',)
 
 @admin.register(SpecialProduct)
 class SpecialProductAdmin(admin.ModelAdmin):

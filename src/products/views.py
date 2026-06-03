@@ -23,12 +23,12 @@ from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.views import APIView
 from .serializers import *
-from .filters import CouponDiscountFilter, PillFilter, ProductFilter, PurchasedBookFilter, BookPublishRequestFilter, PromoCodeFilter
+from .filters import CouponDiscountFilter, PillFilter, ProductFilter, PurchasedBookFilter, BookPublishRequestFilter, PromoCodeFilter, GiftCodeFilter
 from .models import (
     BestProduct, CouponDiscount, Discount, PackageProduct, SpecialProduct,
     ProductImage, Product, Pill,
     PurchasedBook, PillItem, Subject, Teacher, BookPublishRequest,
-    PromoCode,
+    PromoCode, GiftCode,
 )
 from accounts.models import User
 from .permissions import IsOwner, IsOwnerOrReadOnly
@@ -2636,3 +2636,57 @@ class RedeemPromoCodeView(APIView):
         serializer.is_valid(raise_exception=True)
         result = serializer.save(user=request.user)
         return Response(result, status=status.HTTP_200_OK)
+
+
+# ─── Gift Code Views ──────────────────────────────────────────────────────────
+
+
+class GiftCodeListCreateView(generics.ListCreateAPIView):
+    """Dashboard: list or create individual gift codes."""
+    queryset = GiftCode.objects.all()
+    serializer_class = GiftCodeSerializer
+    permission_classes = [IsAdminUser]
+    filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter, OrderingFilter]
+    filterset_class = GiftCodeFilter
+    search_fields = ['code']
+    ordering_fields = ['id', 'code', 'is_active', 'created_at', 'updated_at']
+    ordering = ['-created_at']
+    pagination_class = CustomPageNumberPagination
+
+
+class GiftCodeRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
+    """Dashboard: retrieve, update or delete a gift code."""
+    queryset = GiftCode.objects.all()
+    serializer_class = GiftCodeSerializer
+    permission_classes = [IsAdminUser]
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        code = instance.code
+        self.perform_destroy(instance)
+        return Response(
+            {'detail': f'تم حذف كود الهدية {code} بنجاح.'},
+            status=status.HTTP_204_NO_CONTENT,
+        )
+
+
+class GiftCodeBulkCreateView(generics.CreateAPIView):
+    """Dashboard: bulk-create multiple gift codes at once."""
+    serializer_class = BulkGiftCodeCreateSerializer
+    permission_classes = [IsAdminUser]
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        created_codes = serializer.save()
+        out = GiftCodeSerializer(created_codes, many=True)
+        return Response(
+            {
+                'success': True,
+                'message': f'تم إنشاء {len(created_codes)} كود هدية بنجاح',
+                'count': len(created_codes),
+                'gift_codes': out.data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+

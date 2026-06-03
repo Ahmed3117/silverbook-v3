@@ -12,7 +12,7 @@ from .models import (
     PillItem,
     SpecialProduct,
     Product, ProductImage, Pill, Subject, Teacher,
-    PurchasedBook, PackageProduct, BookPublishRequest
+    PurchasedBook, PackageProduct, BookPublishRequest, GiftCode
 )
 
 
@@ -1011,6 +1011,7 @@ class PillCreateSerializer(serializers.ModelSerializer):
             'items',
             '_items_details',
             'status',
+            'code',
             'date_added',
         ]
         read_only_fields = [
@@ -1020,6 +1021,7 @@ class PillCreateSerializer(serializers.ModelSerializer):
             'user_parent_phone',
             '_items_details',
             'status',
+            'code',
             'date_added',
         ]
 
@@ -1264,14 +1266,14 @@ class PillDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Pill
         fields = [
-            'id','pill_number', 'user_name', 'user_username', 'user_parent_phone' ,'items', 'status', 
-            'status_display', 'date_added', 'coupon', 'final_price', 'shakeout_invoice_id', 
-            'easypay_invoice_uid','easypay_fawry_ref', 'easypay_invoice_sequence', 'payment_gateway', 'payment_url', 'payment_status'
+            'id','pill_number', 'user_name', 'user_username', 'user_parent_phone' ,'items', 'status',
+            'status_display', 'date_added', 'coupon', 'final_price', 'shakeout_invoice_id',
+            'easypay_invoice_uid','easypay_fawry_ref', 'easypay_invoice_sequence', 'payment_gateway', 'payment_url', 'payment_status', 'code'
         ]
         read_only_fields = [
             'id','pill_number', 'user_name', 'user_username', 'items', 'status', 'status_display', 'date_added', 'coupon',
-            'final_price', 'shakeout_invoice_id', 'easypay_invoice_uid','easypay_fawry_ref', 
-            'easypay_invoice_sequence', 'payment_gateway', 'payment_url', 'payment_status'
+            'final_price', 'shakeout_invoice_id', 'easypay_invoice_uid','easypay_fawry_ref',
+            'easypay_invoice_sequence', 'payment_gateway', 'payment_url', 'payment_status', 'code'
         ]
 
     def get_user_name(self, obj):
@@ -1322,18 +1324,18 @@ class PillSerializer(serializers.ModelSerializer):
     class Meta:
         model = Pill
         fields = [
-            'id', 'pill_number', 'user_name', 'user_username', 
-            'user_parent_phone', 'items', 'items_count', 'status', 
-            'status_display', 'date_added', 'coupon', 'final_price', 'shakeout_invoice_id', 
-            'shakeout_invoice_url', 'easypay_invoice_uid', 'easypay_invoice_sequence', 
-            'easypay_invoice_url', 'payment_gateway', 'payment_url', 'payment_status'
+            'id', 'pill_number', 'user_name', 'user_username',
+            'user_parent_phone', 'items', 'items_count', 'status',
+            'status_display', 'date_added', 'coupon', 'final_price', 'shakeout_invoice_id',
+            'shakeout_invoice_url', 'easypay_invoice_uid', 'easypay_invoice_sequence',
+            'easypay_invoice_url', 'payment_gateway', 'payment_url', 'payment_status', 'code'
         ]
         read_only_fields = [
-            'id', 'pill_number', 'user_name', 'user_username', 
+            'id', 'pill_number', 'user_name', 'user_username',
             'status', 'status_display', 'date_added', 'coupon', 'final_price', 'items_count',
-            'shakeout_invoice_id', 'shakeout_invoice_url', 'easypay_invoice_uid', 
-            'easypay_invoice_sequence', 'easypay_invoice_url', 'payment_gateway', 
-            'payment_url', 'payment_status'
+            'shakeout_invoice_id', 'shakeout_invoice_url', 'easypay_invoice_uid',
+            'easypay_invoice_sequence', 'easypay_invoice_url', 'payment_gateway',
+            'payment_url', 'payment_status', 'code'
         ]
 
     def get_user_name(self, obj):
@@ -1382,16 +1384,16 @@ class PillDetailWithoutItemsSerializer(serializers.ModelSerializer):
     class Meta:
         model = Pill
         fields = [
-            'id', 'pill_number', 'user_name', 'user_username', 
-            'user_parent_phone', 'status', 'date_added', 'coupon', 
-            'final_price', 'shakeout_invoice_id', 'easypay_invoice_uid', 
-            'easypay_fawry_ref', 'easypay_invoice_sequence', 'payment_gateway'
+            'id', 'pill_number', 'user_name', 'user_username',
+            'user_parent_phone', 'status', 'date_added', 'coupon',
+            'final_price', 'shakeout_invoice_id', 'easypay_invoice_uid',
+            'easypay_fawry_ref', 'easypay_invoice_sequence', 'payment_gateway', 'code'
         ]
         read_only_fields = [
-            'id', 'pill_number', 'user_name', 'user_username', 
-            'user_parent_phone', 'status', 'date_added', 'coupon', 
-            'final_price', 'shakeout_invoice_id', 'easypay_invoice_uid', 
-            'easypay_fawry_ref', 'easypay_invoice_sequence', 'payment_gateway'
+            'id', 'pill_number', 'user_name', 'user_username',
+            'user_parent_phone', 'status', 'date_added', 'coupon',
+            'final_price', 'shakeout_invoice_id', 'easypay_invoice_uid',
+            'easypay_fawry_ref', 'easypay_invoice_sequence', 'payment_gateway', 'code'
         ]
 
     def get_user_name(self, obj):
@@ -2152,6 +2154,72 @@ class RedeemPromoCodeSerializer(serializers.Serializer):
             'book': PromoCodeBookSerializer(product).data,
             'already_owned': not created,
         }
+
+
+# ─── Gift Code Serializers ────────────────────────────────────────────────────
+
+
+class GiftCodeSerializer(serializers.ModelSerializer):
+    """Dashboard: CRUD a single gift code that will be auto-assigned to paid pills."""
+    class Meta:
+        model = GiftCode
+        fields = ['id', 'code', 'is_active', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def validate_code(self, value):
+        value = (value or '').strip()
+        if not value:
+            raise serializers.ValidationError('الكود لا يمكن أن يكون فارغاً.')
+        queryset = GiftCode.objects.filter(code__iexact=value)
+        if self.instance is not None:
+            queryset = queryset.exclude(pk=self.instance.pk)
+        if queryset.exists():
+            raise serializers.ValidationError('يوجد كود هدية بنفس القيمة بالفعل.')
+        return value
+
+
+class BulkGiftCodeCreateSerializer(serializers.Serializer):
+    """Dashboard: bulk-create gift codes by providing a list of code strings."""
+    codes = serializers.ListField(
+        child=serializers.CharField(max_length=100, allow_blank=False, trim_whitespace=True),
+        min_length=1,
+        max_length=1000,
+        help_text="List of unique gift code strings to create.",
+    )
+    is_active = serializers.BooleanField(default=True)
+
+    def validate_codes(self, value):
+        cleaned = []
+        seen = set()
+        for raw in value:
+            code = (raw or '').strip()
+            if not code or code in seen:
+                continue
+            seen.add(code)
+            cleaned.append(code)
+
+        if not cleaned:
+            raise serializers.ValidationError('يجب توفير كود هدية واحد على الأقل.')
+
+        existing = set(
+            GiftCode.objects
+            .filter(code__in=cleaned)
+            .values_list('code', flat=True)
+        )
+        if existing:
+            raise serializers.ValidationError(
+                f'هذه الأكواد موجودة بالفعل: {", ".join(sorted(existing))}'
+            )
+
+        return cleaned
+
+    def create(self, validated_data):
+        codes = validated_data.pop('codes')
+        is_active = validated_data.get('is_active', True)
+        gift_codes = [GiftCode(code=code, is_active=is_active) for code in codes]
+        GiftCode.objects.bulk_create(gift_codes)
+        return gift_codes
+
 
 
 

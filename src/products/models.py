@@ -461,13 +461,21 @@ class Pill(models.Model):
     
     # Payment gateway tracking
     payment_gateway = models.CharField(
-        max_length=20, 
-        choices=PAYMENT_GATEWAY_CHOICES, 
-        null=True, 
-        blank=True, 
+        max_length=20,
+        choices=PAYMENT_GATEWAY_CHOICES,
+        null=True,
+        blank=True,
         help_text="Which payment gateway was used for this pill"
     )
-    
+
+    # Gift code assigned to this pill after a successful payment
+    code = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        help_text="Gift code assigned to the pill once the payment is confirmed.",
+    )
+
     def save(self, *args, **kwargs):
         if not self.pill_number:
             self.pill_number = generate_pill_number()
@@ -476,6 +484,17 @@ class Pill(models.Model):
         previous_status = None
         if not is_new:
             previous_status = Pill.objects.filter(pk=self.pk).values_list('status', flat=True).first()
+
+        # When pill status transitions to 'p' (newly paid), assign a GiftCode
+        # before persisting so the code is saved in the same DB call even when
+        # callers restrict `update_fields`.
+        if self.status == 'p' and (is_new or previous_status != 'p') and not self.code:
+            assigned_code = self._consume_gift_code()
+            if assigned_code:
+                self.code = assigned_code
+                update_fields = kwargs.get('update_fields')
+                if update_fields is not None:
+                    kwargs['update_fields'] = set(update_fields) | {'code'}
 
         super().save(*args, **kwargs)
 
@@ -585,7 +604,7 @@ class Pill(models.Model):
     def send_payment_notification(self):
         """Notify the user that payment succeeded. Sends SMS to user.username (phone number) with deeplink."""
         from django.urls import reverse
-        
+
         # Use username as phone number
         phone = self.user.username
         if not phone:
@@ -597,26 +616,55 @@ class Pill(models.Model):
             deeplink_path = reverse('products:deeplink', args=['mybooks'])
             # deeplink_url = f"{settings.SITE_URL}{deeplink_path}"
             deeplink_url = settings.DEEPLINK_URL
-            
+
             # Prepare SMS message
             message = (
                 f"الدفع تم بنجاح\n\n"
                 f"لعرض كتبك\n"
                 f"{deeplink_url}"
             )
-            
+
+            # If a gift code was assigned to this pill, append it to the SMS body.
+            if self.code:
+                message = f"{message}\n\nكود هدية: {self.code}"
+
             response = send_beon_sms(
                 phone_numbers=phone,
                 message=message
             )
-            
+
             if response['success']:
                 logger.info("Payment notification sent to %s for pill %s", phone, self.pill_number)
             else:
                 logger.warning("Failed to send payment notification for pill %s: %s", self.pill_number, response.get('error'))
-                
+
         except Exception as exc:  # pragma: no cover - best effort notification
             logger.warning("Failed to send payment notification for pill %s: %s", self.pill_number, exc)
+
+    def _consume_gift_code(self):
+        """Atomically pick the first active GiftCode, deactivate it, and return its code.
+
+        Returns ``None`` when there are no active GiftCode records.
+        """
+        try:
+            gift_code = (
+                GiftCode.objects
+                .select_for_update(skip_locked=True)
+                .filter(is_active=True)
+                .order_by('id')
+                .first()
+            )
+        except Exception:
+            # ``select_for_update`` is not supported on all databases (e.g. SQLite);
+            # fall back to a plain lookup.
+            gift_code = GiftCode.objects.filter(is_active=True).order_by('id').first()
+
+        if not gift_code:
+            return None
+
+        gift_code.is_active = False
+        gift_code.save(update_fields=['is_active'])
+        return gift_code.code
 
     @property
     def shakeout_payment_url(self):
@@ -866,3 +914,28 @@ class PromoCode(models.Model):
         if self.valid_until and now > self.valid_until:
             return False
         return True
+
+
+class GiftCode(models.Model):
+    """Pool of gift codes that get auto-assigned to a Pill once it is paid."""
+    code = models.CharField(
+        max_length=100,
+        unique=True,
+        db_index=True,
+        help_text="Unique gift code that will be assigned to paid pills.",
+    )
+    is_active = models.BooleanField(
+        default=True,
+        db_index=True,
+        help_text="When true, this code is still available to be assigned to a pill.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Gift Code'
+        verbose_name_plural = 'Gift Codes'
+
+    def __str__(self):
+        return self.code

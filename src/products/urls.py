@@ -105,6 +105,11 @@ urlpatterns = [
     # Promo Code Endpoints (Student)
     path('promo-codes/redeem/', views.RedeemPromoCodeView.as_view(), name='promo-code-redeem'),
 
+    # Gift Code Endpoints (Dashboard)
+    path('dashboard/gift-codes/', views.GiftCodeListCreateView.as_view(), name='admin-gift-code-list-create'),
+    path('dashboard/gift-codes/bulk-create/', views.GiftCodeBulkCreateView.as_view(), name='admin-gift-code-bulk-create'),
+    path('dashboard/gift-codes/<int:pk>/', views.GiftCodeRetrieveUpdateDestroyView.as_view(), name='admin-gift-code-detail'),
+
     # Payment Endpoints (Fawaterak, Shakeout, EasyPay)
     path('api/payment/create/<int:pill_id>/', payment_views.create_payment_view, name='api_create_payment'),
     path('api/payment/webhook/fawaterak/', payment_views.fawaterak_webhook, name='api_fawaterak_webhook'),
