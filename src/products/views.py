@@ -1887,15 +1887,15 @@ class AdminPurchasedBookListCreateView(generics.ListCreateAPIView):
     
     Filters: user, product, pill, user_id, product_id, pill_id, start_date, end_date, 
              product_name, username, user_name
-    Search: product_name, user__username, user__name
+    Search: product_name, code, user__username, user__name
     """
     queryset = optimize_purchased_book_queryset()
     serializer_class = PurchasedBookSerializer
     permission_classes = [IsAdminUser]
     filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter, OrderingFilter]
     filterset_class = PurchasedBookFilter
-    search_fields = ['product_name', 'user__username', 'user__name', 'product__name']
-    ordering_fields = ['created_at', 'product_name', 'user__username', 'price_at_sale']
+    search_fields = ['product_name', 'code', 'user__username', 'user__name', 'product__name']
+    ordering_fields = ['created_at', 'product_name', 'code', 'user__username', 'price_at_sale']
     ordering = ['-created_at']
     pagination_class = CustomPageNumberPagination
     
@@ -2643,20 +2643,20 @@ class RedeemPromoCodeView(APIView):
 
 class GiftCodeListCreateView(generics.ListCreateAPIView):
     """Dashboard: list or create individual gift codes."""
-    queryset = GiftCode.objects.all()
+    queryset = GiftCode.objects.select_related('product')
     serializer_class = GiftCodeSerializer
     permission_classes = [IsAdminUser]
     filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter, OrderingFilter]
     filterset_class = GiftCodeFilter
-    search_fields = ['code']
-    ordering_fields = ['id', 'code', 'is_active', 'created_at', 'updated_at']
+    search_fields = ['code', 'product__name', 'product__product_number']
+    ordering_fields = ['id', 'code', 'product__name', 'is_active', 'created_at', 'updated_at']
     ordering = ['-created_at']
     pagination_class = CustomPageNumberPagination
 
 
 class GiftCodeRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
     """Dashboard: retrieve, update or delete a gift code."""
-    queryset = GiftCode.objects.all()
+    queryset = GiftCode.objects.select_related('product')
     serializer_class = GiftCodeSerializer
     permission_classes = [IsAdminUser]
 
@@ -2689,4 +2689,3 @@ class GiftCodeBulkCreateView(generics.CreateAPIView):
             },
             status=status.HTTP_201_CREATED,
         )
-

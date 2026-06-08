@@ -115,13 +115,14 @@ class PurchasedBookFilter(filters.FilterSet):
     start_date = filters.DateFilter(field_name='created_at', lookup_expr='gte', label='Start Date')
     end_date = filters.DateFilter(field_name='created_at', lookup_expr='lte', label='End Date')
     product_name = filters.CharFilter(field_name='product_name', lookup_expr='icontains')
+    code = filters.CharFilter(field_name='code', lookup_expr='icontains')
     username = filters.CharFilter(field_name='user__username', lookup_expr='icontains')
     user_name = filters.CharFilter(field_name='user__name', lookup_expr='icontains')
     added_by = filters.CharFilter(method='filter_by_added_by')
 
     class Meta:
         model = PurchasedBook
-        fields = ['user', 'product', 'pill']
+        fields = ['user', 'product', 'pill', 'code']
     
     def filter_by_added_by(self, queryset, name, value):
         """
@@ -183,10 +184,13 @@ class PromoCodeFilter(filters.FilterSet):
 
 class GiftCodeFilter(filters.FilterSet):
     code = filters.CharFilter(field_name='code', lookup_expr='icontains')
+    product_id = filters.NumberFilter(field_name='product__id')
+    product_number = filters.CharFilter(field_name='product__product_number', lookup_expr='icontains')
+    product_name = filters.CharFilter(field_name='product__name', lookup_expr='icontains')
     is_active = filters.BooleanFilter(field_name='is_active')
     start_date = filters.DateFilter(field_name='created_at', lookup_expr='date__gte')
     end_date = filters.DateFilter(field_name='created_at', lookup_expr='date__lte')
 
     class Meta:
         model = GiftCode
-        fields = ['code', 'is_active']
+        fields = ['code', 'product_id', 'product_number', 'product_name', 'is_active']

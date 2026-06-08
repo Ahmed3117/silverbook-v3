@@ -1,0 +1,11 @@
+{% extends "admin/change_list.html" %}
+{% load i18n %}
+
+{% block object-tools-items %}
+  <li>
+    <a href="{{ upload_json_url }}" class="addlink">
+      {% trans "Upload JSON" %}
+    </a>
+  </li>
+  {{ block.super }}
+{% endblock %}

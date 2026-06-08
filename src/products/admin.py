@@ -1,8 +1,11 @@
 from django.contrib import admin
-from django.db.models import Sum
+from django.db.models import Q, Sum
+from django import forms
 from django.utils.html import mark_safe
 from django.utils import timezone
 from django.http import HttpResponse
+from django.template.response import TemplateResponse
+from django.urls import path, reverse
 from .models import (
     Subject, Teacher, Product, ProductImage,
     PillItem, Pill, CouponDiscount, Discount, LovedProduct,
@@ -21,6 +24,128 @@ except ImportError:
         EXCEL_AVAILABLE = False
 import io
 from datetime import datetime
+
+
+class GiftCodeJsonUploadForm(forms.Form):
+    json_file = forms.FileField(
+        label='JSON file',
+        help_text='Upload a JSON file with product_number and codes.',
+    )
+    is_active = forms.BooleanField(
+        label='Create codes as active',
+        required=False,
+        initial=True,
+    )
+
+
+def _gift_code_entries_from_json(data):
+    if isinstance(data, dict) and 'product_number' in data and 'codes' in data:
+        return [data]
+
+    if isinstance(data, dict):
+        for key in ('items', 'products', 'gift_codes'):
+            value = data.get(key)
+            if isinstance(value, list):
+                return value
+
+    if isinstance(data, list):
+        return data
+
+    raise ValueError(
+        'Invalid JSON structure. Expected {"product_number": "...", "codes": [...]} '
+        'or a list of objects with product_number and codes.'
+    )
+
+
+def process_gift_codes_json(data, is_active=True):
+    entries = _gift_code_entries_from_json(data)
+    results = {
+        'products_processed': 0,
+        'codes_created': 0,
+        'codes_skipped': 0,
+        'errors': [],
+        'created_by_product': [],
+    }
+    seen_codes = set()
+
+    for index, entry in enumerate(entries, start=1):
+        if not isinstance(entry, dict):
+            results['errors'].append(f'Entry #{index} must be an object.')
+            continue
+
+        product_number = str(entry.get('product_number') or '').strip()
+        raw_codes = entry.get('codes')
+
+        if not product_number:
+            results['errors'].append(f'Entry #{index} is missing product_number.')
+            continue
+
+        if not isinstance(raw_codes, list):
+            results['errors'].append(f'Entry #{index} for product {product_number} must include codes as a list.')
+            continue
+
+        try:
+            product = Product.objects.get(product_number=product_number)
+        except Product.DoesNotExist:
+            results['errors'].append(f'Product not found: {product_number}.')
+            continue
+        except Product.MultipleObjectsReturned:
+            results['errors'].append(f'Multiple products found with product_number: {product_number}.')
+            continue
+
+        cleaned_codes = []
+        for raw_code in raw_codes:
+            code = str(raw_code or '').strip()
+            if not code:
+                results['codes_skipped'] += 1
+                continue
+            if code in seen_codes:
+                results['codes_skipped'] += 1
+                continue
+            seen_codes.add(code)
+            cleaned_codes.append(code)
+
+        if not cleaned_codes:
+            results['created_by_product'].append({
+                'product_number': product_number,
+                'product_name': product.name,
+                'created': 0,
+                'skipped': 0,
+            })
+            results['products_processed'] += 1
+            continue
+
+        existing_query = Q()
+        for code in cleaned_codes:
+            existing_query |= Q(code__iexact=code)
+
+        existing_codes = set()
+        if existing_query:
+            existing_codes = {
+                code.lower()
+                for code in GiftCode.objects.filter(existing_query).values_list('code', flat=True)
+            }
+        create_codes = [code for code in cleaned_codes if code.lower() not in existing_codes]
+        skipped_count = len(cleaned_codes) - len(create_codes)
+        results['codes_skipped'] += skipped_count
+
+        gift_codes = [
+            GiftCode(product=product, code=code, is_active=is_active)
+            for code in create_codes
+        ]
+        GiftCode.objects.bulk_create(gift_codes)
+
+        results['products_processed'] += 1
+        results['codes_created'] += len(gift_codes)
+        results['created_by_product'].append({
+            'product_number': product_number,
+            'product_name': product.name,
+            'created': len(gift_codes),
+            'skipped': skipped_count,
+        })
+
+    return results
+
 
 class GovernmentListFilter(admin.SimpleListFilter):
     title = 'Government'
@@ -81,13 +206,19 @@ class PackageProductInline(admin.TabularInline):
     verbose_name_plural = 'Related Books in Package'
     autocomplete_fields = ['related_product']
 
+class GiftCodeInline(admin.TabularInline):
+    model = GiftCode
+    extra = 0
+    fields = ('code', 'is_active', 'created_at', 'updated_at')
+    readonly_fields = ('created_at', 'updated_at')
+
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
     list_display = ('name','product_number', 'type', 'get_image_preview', 'subject', 'price', 'date_added')
     list_filter = ('subject', 'type', 'date_added')
-    search_fields = ('name', 'description')
+    search_fields = ('name', 'product_number', 'description')
     autocomplete_fields = ('subject',)
-    inlines = [ProductImageInline, DiscountInline, PackageProductInline]
+    inlines = [ProductImageInline, DiscountInline, PackageProductInline, GiftCodeInline]
     list_select_related = ('subject',)
 
     def get_inline_instances(self, request, obj=None):
@@ -607,11 +738,75 @@ class CouponDiscountAdmin(admin.ModelAdmin):
 
 @admin.register(GiftCode)
 class GiftCodeAdmin(admin.ModelAdmin):
-    list_display = ('code', 'is_active', 'created_at', 'updated_at')
-    list_filter = ('is_active',)
-    search_fields = ('code',)
+    change_list_template = 'admin/products/giftcode/change_list.html'
+    list_display = ('code', 'product', 'is_active', 'created_at', 'updated_at')
+    list_filter = ('is_active', 'product')
+    search_fields = ('code', 'product__name', 'product__product_number')
+    autocomplete_fields = ('product',)
     list_editable = ('is_active',)
     ordering = ('-created_at',)
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                'upload-json/',
+                self.admin_site.admin_view(self.upload_json_view),
+                name='products_giftcode_upload_json',
+            ),
+        ]
+        return custom_urls + urls
+
+    def upload_json_view(self, request):
+        context = {
+            **self.admin_site.each_context(request),
+            'title': 'Upload Gift Codes JSON',
+            'opts': self.model._meta,
+            'form': GiftCodeJsonUploadForm(),
+            'results': None,
+        }
+
+        if request.method == 'POST':
+            form = GiftCodeJsonUploadForm(request.POST, request.FILES)
+            context['form'] = form
+
+            if form.is_valid():
+                uploaded_file = form.cleaned_data['json_file']
+                if not uploaded_file.name.lower().endswith('.json'):
+                    self.message_user(request, 'Please upload a .json file.', level='ERROR')
+                    return TemplateResponse(request, 'admin/products/giftcode/upload_json.html', context)
+
+                try:
+                    payload = json.loads(uploaded_file.read().decode('utf-8'))
+                    results = process_gift_codes_json(
+                        payload,
+                        is_active=form.cleaned_data.get('is_active', True),
+                    )
+                    context['results'] = results
+
+                    if results['codes_created']:
+                        self.message_user(
+                            request,
+                            f"Created {results['codes_created']} gift code(s). "
+                            f"Skipped {results['codes_skipped']} code(s).",
+                        )
+                    elif results['errors']:
+                        self.message_user(request, 'No gift codes were created. Review the errors below.', level='ERROR')
+                    else:
+                        self.message_user(request, 'No new gift codes were created.', level='WARNING')
+                except json.JSONDecodeError as exc:
+                    self.message_user(request, f'Invalid JSON file: {exc}', level='ERROR')
+                except ValueError as exc:
+                    self.message_user(request, str(exc), level='ERROR')
+                except Exception as exc:
+                    self.message_user(request, f'Failed to import gift codes: {exc}', level='ERROR')
+
+        return TemplateResponse(request, 'admin/products/giftcode/upload_json.html', context)
+
+    def changelist_view(self, request, extra_context=None):
+        extra_context = extra_context or {}
+        extra_context['upload_json_url'] = reverse('admin:products_giftcode_upload_json')
+        return super().changelist_view(request, extra_context=extra_context)
 
 @admin.register(SpecialProduct)
 class SpecialProductAdmin(admin.ModelAdmin):
@@ -636,9 +831,9 @@ class LovedProductAdmin(admin.ModelAdmin):
 
 @admin.register(PurchasedBook)
 class PurchasedBookAdmin(admin.ModelAdmin):
-    list_display = ('product_name', 'user', 'pill', 'created_at')
+    list_display = ('product_name', 'user', 'pill', 'code', 'created_at')
     list_filter = ('created_at',)
-    search_fields = ('product_name', 'user__username', 'user__name', 'pill__pill_number')
+    search_fields = ('product_name', 'code', 'user__username', 'user__name', 'pill__pill_number')
 
 
 @admin.register(PackageProduct)
@@ -652,9 +847,4 @@ class PackageProductAdmin(admin.ModelAdmin):
 admin.site.register(ProductImage)
 admin.site.register(PillItem)
 # admin.site.register(PillAddress)
-
-
-
-
-
 

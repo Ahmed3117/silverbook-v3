@@ -1,7 +1,7 @@
 import random
 import string
 import uuid
-from django.db import models
+from django.db import models, transaction
 from django.db.models import Prefetch
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator, MaxValueValidator
@@ -468,12 +468,11 @@ class Pill(models.Model):
         help_text="Which payment gateway was used for this pill"
     )
 
-    # Gift code assigned to this pill after a successful payment
-    code = models.CharField(
-        max_length=100,
-        null=True,
+    # Gift codes assigned to this pill after a successful payment.
+    code = models.JSONField(
+        default=list,
         blank=True,
-        help_text="Gift code assigned to the pill once the payment is confirmed.",
+        help_text="Gift codes assigned to the pill once the payment is confirmed.",
     )
 
     def save(self, *args, **kwargs):
@@ -484,17 +483,6 @@ class Pill(models.Model):
         previous_status = None
         if not is_new:
             previous_status = Pill.objects.filter(pk=self.pk).values_list('status', flat=True).first()
-
-        # When pill status transitions to 'p' (newly paid), assign a GiftCode
-        # before persisting so the code is saved in the same DB call even when
-        # callers restrict `update_fields`.
-        if self.status == 'p' and (is_new or previous_status != 'p') and not self.code:
-            assigned_code = self._consume_gift_code()
-            if assigned_code:
-                self.code = assigned_code
-                update_fields = kwargs.get('update_fields')
-                if update_fields is not None:
-                    kwargs['update_fields'] = set(update_fields) | {'code'}
 
         super().save(*args, **kwargs)
 
@@ -583,23 +571,43 @@ class Pill(models.Model):
     def grant_purchased_books(self, purchase_method: str = 'user_paid'):
         from .models import PurchasedBook
 
-        items = self.items.select_related('product').all()
+        items = self.items.select_related('product').order_by('id')
+        pill_codes = []
         for item in items:
             product = getattr(item, 'product', None)
             if not product:
                 continue
 
-            # Create PurchasedBook for the product (book or package)
-            PurchasedBook.objects.update_or_create(
+            purchased_book = PurchasedBook.objects.filter(
                 user=self.user,
                 pill=self,
                 product=product,
-                defaults={
-                    'product_name': product.name,
-                    'pill_item': item,
-                    'purchase_method': purchase_method,
-                }
+            ).first()
+            assigned_code = purchased_book.code if purchased_book and purchased_book.code else None
+
+            if purchase_method == 'user_paid' and not assigned_code:
+                assigned_code = self._consume_gift_code(product)
+
+            defaults = {
+                'product_name': product.name,
+                'pill_item': item,
+                'purchase_method': purchase_method,
+            }
+            if assigned_code:
+                defaults['code'] = assigned_code
+
+            # Create PurchasedBook for the product (book or package)
+            purchased_book, _ = PurchasedBook.objects.update_or_create(
+                user=self.user,
+                pill=self,
+                product=product,
+                defaults=defaults,
             )
+
+            if purchased_book.code:
+                pill_codes.append(purchased_book.code)
+
+        self._sync_code_list(pill_codes)
 
     def send_payment_notification(self):
         """Notify the user that payment succeeded. Sends SMS to user.username (phone number) with deeplink."""
@@ -624,9 +632,14 @@ class Pill(models.Model):
                 f"{deeplink_url}"
             )
 
-            # If a gift code was assigned to this pill, append it to the SMS body.
-            if self.code:
-                message = f"{message}\n\nكود هدية: {self.code}"
+            # If gift codes were assigned to this pill, append them to the SMS body.
+            gift_codes = self._code_list()
+            if gift_codes:
+                gift_code_lines = "\n".join(
+                    f"{index}. {code}"
+                    for index, code in enumerate(gift_codes, start=1)
+                )
+                message = f"{message}\n\nأكواد الهدية:\n{gift_code_lines}"
 
             response = send_beon_sms(
                 phone_numbers=phone,
@@ -641,30 +654,59 @@ class Pill(models.Model):
         except Exception as exc:  # pragma: no cover - best effort notification
             logger.warning("Failed to send payment notification for pill %s: %s", self.pill_number, exc)
 
-    def _consume_gift_code(self):
-        """Atomically pick the first active GiftCode, deactivate it, and return its code.
+    def _consume_gift_code(self, product):
+        """Atomically pick the first active GiftCode for a product and return its code.
 
-        Returns ``None`` when there are no active GiftCode records.
+        Returns ``None`` when there are no active GiftCode records for this product.
         """
+        if not product:
+            return None
+
         try:
-            gift_code = (
-                GiftCode.objects
-                .select_for_update(skip_locked=True)
-                .filter(is_active=True)
-                .order_by('id')
-                .first()
-            )
+            with transaction.atomic():
+                gift_code = (
+                    GiftCode.objects
+                    .select_for_update(skip_locked=True)
+                    .filter(product=product, is_active=True)
+                    .order_by('id')
+                    .first()
+                )
+                if not gift_code:
+                    return None
+
+                gift_code.is_active = False
+                gift_code.save(update_fields=['is_active'])
+                return gift_code.code
         except Exception:
             # ``select_for_update`` is not supported on all databases (e.g. SQLite);
             # fall back to a plain lookup.
-            gift_code = GiftCode.objects.filter(is_active=True).order_by('id').first()
+            gift_code = (
+                GiftCode.objects
+                .filter(product=product, is_active=True)
+                .order_by('id')
+                .first()
+            )
 
         if not gift_code:
             return None
 
-        gift_code.is_active = False
-        gift_code.save(update_fields=['is_active'])
+        updated = GiftCode.objects.filter(pk=gift_code.pk, is_active=True).update(is_active=False)
+        if not updated:
+            return None
         return gift_code.code
+
+    def _code_list(self):
+        if isinstance(self.code, list):
+            return [str(code) for code in self.code if code]
+        if self.code:
+            return [str(self.code)]
+        return []
+
+    def _sync_code_list(self, codes):
+        codes = [str(code) for code in codes if code]
+        if self.pk and self._code_list() != codes:
+            self.code = codes
+            Pill.objects.filter(pk=self.pk).update(code=codes)
 
     @property
     def shakeout_payment_url(self):
@@ -776,6 +818,12 @@ class PurchasedBook(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='purchased_books')
     pill_item = models.ForeignKey(PillItem, on_delete=models.SET_NULL, null=True, blank=True, related_name='purchased_books')
     product_name = models.CharField(max_length=255, blank=True)
+    code = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        help_text="Gift code selected for this purchased product.",
+    )
     price_at_sale = models.FloatField(null=True, blank=True, help_text="Price at the time of purchase/assignment")
     purchase_method = models.CharField(
         max_length=20,
@@ -917,12 +965,20 @@ class PromoCode(models.Model):
 
 
 class GiftCode(models.Model):
-    """Pool of gift codes that get auto-assigned to a Pill once it is paid."""
+    """Pool of product gift codes that get assigned once a matching pill is paid."""
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name='gift_codes',
+        null=True,
+        blank=False,
+        help_text="Product this gift code belongs to.",
+    )
     code = models.CharField(
         max_length=100,
         unique=True,
         db_index=True,
-        help_text="Unique gift code that will be assigned to paid pills.",
+        help_text="Unique gift code that will be assigned to a paid pill for this product.",
     )
     is_active = models.BooleanField(
         default=True,

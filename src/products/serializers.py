@@ -1600,7 +1600,7 @@ class PurchasedBookSerializer(serializers.ModelSerializer):
             'id', 'book_token', 'user',
             'product', 'product_id', 'product_number','name',
             'pill', 'pill_id', 'pill_number',
-            'pill_item', 'product_name', 'created_at',
+            'pill_item', 'product_name', 'code', 'created_at',
             'student_name', 'student_phone', 'type', 'year', 'subject_id', 'subject_name',
             'teacher_id', 'teacher_name', 'base_image', 'pdf_file', 'is_downloadable', 'related_products'
         ]
@@ -2162,10 +2162,17 @@ class RedeemPromoCodeSerializer(serializers.Serializer):
 
 
 class GiftCodeSerializer(serializers.ModelSerializer):
-    """Dashboard: CRUD a single gift code that will be auto-assigned to paid pills."""
+    """Dashboard: CRUD a single product gift code."""
+    product = PromoCodeBookSerializer(read_only=True)
+    product_id = serializers.PrimaryKeyRelatedField(
+        queryset=Product.objects.all(),
+        source='product',
+        write_only=True,
+    )
+
     class Meta:
         model = GiftCode
-        fields = ['id', 'code', 'is_active', 'created_at', 'updated_at']
+        fields = ['id', 'product', 'product_id', 'code', 'is_active', 'created_at', 'updated_at']
         read_only_fields = ['id', 'created_at', 'updated_at']
 
     def validate_code(self, value):
@@ -2181,7 +2188,12 @@ class GiftCodeSerializer(serializers.ModelSerializer):
 
 
 class BulkGiftCodeCreateSerializer(serializers.Serializer):
-    """Dashboard: bulk-create gift codes by providing a list of code strings."""
+    """Dashboard: bulk-create gift codes for one product by providing code strings."""
+    product_id = serializers.PrimaryKeyRelatedField(
+        queryset=Product.objects.all(),
+        source='product',
+        help_text="Product these gift codes belong to.",
+    )
     codes = serializers.ListField(
         child=serializers.CharField(max_length=100, allow_blank=False, trim_whitespace=True),
         min_length=1,
@@ -2216,12 +2228,12 @@ class BulkGiftCodeCreateSerializer(serializers.Serializer):
         return cleaned
 
     def create(self, validated_data):
+        product = validated_data.pop('product')
         codes = validated_data.pop('codes')
         is_active = validated_data.get('is_active', True)
-        gift_codes = [GiftCode(code=code, is_active=is_active) for code in codes]
+        gift_codes = [GiftCode(product=product, code=code, is_active=is_active) for code in codes]
         GiftCode.objects.bulk_create(gift_codes)
         return gift_codes
-
 
 
 
