@@ -241,6 +241,8 @@ class ProductSerializer(serializers.ModelSerializer):
     has_discount = serializers.SerializerMethodField()
     current_discount = serializers.SerializerMethodField()
     discount_expiry = serializers.SerializerMethodField()
+    is_added_to_love = serializers.SerializerMethodField()
+    is_already_purchased = serializers.SerializerMethodField()
     subject_id = serializers.SerializerMethodField()
     subject_name = serializers.SerializerMethodField()
     teacher_id = serializers.SerializerMethodField()
@@ -259,6 +261,7 @@ class ProductSerializer(serializers.ModelSerializer):
             'price', 'description', 'date_added', 'discounted_price',
             'has_discount', 'current_discount', 'discount_expiry',
             'base_image', 'is_available', 'is_downloadable', 'related_products',
+            'is_added_to_love', 'is_already_purchased',
             'order',
         ]
         read_only_fields = [
@@ -331,6 +334,31 @@ class ProductSerializer(serializers.ModelSerializer):
     def get_has_discount(self, obj):
         return bool(self._active_discounts(obj))
 
+    def _request_user(self):
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        return user if user and user.is_authenticated else None
+
+    def get_is_added_to_love(self, obj):
+        annotated = getattr(obj, 'is_added_to_love', None)
+        if annotated is not None:
+            return bool(annotated)
+
+        user = self._request_user()
+        if not user:
+            return False
+        return LovedProduct.objects.filter(user=user, product=obj).exists()
+
+    def get_is_already_purchased(self, obj):
+        annotated = getattr(obj, 'is_already_purchased', None)
+        if annotated is not None:
+            return bool(annotated)
+
+        user = self._request_user()
+        if not user:
+            return False
+        return PurchasedBook.objects.filter(user=user, product=obj).exists()
+
     def _package_products(self, obj):
         prefetched = getattr(obj, 'prefetched_package_products', None)
         if prefetched is not None:
@@ -342,6 +370,23 @@ class ProductSerializer(serializers.ModelSerializer):
             'related_product__teacher',
             'related_product__teacher__user',
         ).order_by('-created_at')
+
+    def _related_product_state(self, package_product, field_name):
+        annotated = getattr(package_product, f'related_product_{field_name}', None)
+        if annotated is not None:
+            return bool(annotated)
+
+        related = package_product.related_product
+        annotated = getattr(related, field_name, None)
+        if annotated is not None:
+            return bool(annotated)
+
+        user = self._request_user()
+        if not user:
+            return False
+
+        model = LovedProduct if field_name == 'is_added_to_love' else PurchasedBook
+        return model.objects.filter(user=user, product=related).exists()
 
     def _related_product_payload(self, package_product, include_pdf=False):
         related = package_product.related_product
@@ -363,6 +408,8 @@ class ProductSerializer(serializers.ModelSerializer):
             'year': related.year,
             'is_available': related.is_available,
             'is_downloadable': related.is_downloadable,
+            'is_added_to_love': self._related_product_state(package_product, 'is_added_to_love'),
+            'is_already_purchased': self._related_product_state(package_product, 'is_already_purchased'),
             'date_added': related.date_added,
         }
         if include_pdf:
@@ -565,6 +612,18 @@ class CouponCodeField(serializers.Field):
     def to_representation(self, value):
         return value.coupon
 
+
+def copy_featured_product_state(instance):
+    product = getattr(instance, 'product', None)
+    if not product:
+        return
+
+    for field_name in ('is_added_to_love', 'is_already_purchased'):
+        annotated_name = f'product_{field_name}'
+        if hasattr(instance, annotated_name):
+            setattr(product, field_name, getattr(instance, annotated_name))
+
+
 class SpecialProductSerializerBase(serializers.ModelSerializer):
     product = ProductSerializer(read_only=True)
     product_id = serializers.PrimaryKeyRelatedField(
@@ -584,6 +643,7 @@ class SpecialProductSerializerBase(serializers.ModelSerializer):
         read_only_fields = ['created_at', 'updated_at']
 
     def to_representation(self, instance):
+        copy_featured_product_state(instance)
         ret = super().to_representation(instance)
         request = self.context.get('request')
         if instance.special_image:
@@ -664,6 +724,7 @@ class SpecialProductSerializer(serializers.ModelSerializer):
         read_only_fields = ['created_at', 'updated_at']
 
     def to_representation(self, instance):
+        copy_featured_product_state(instance)
         ret = super().to_representation(instance)
         request = self.context.get('request')
         if instance.special_image:
@@ -716,6 +777,10 @@ class BestProductSerializer(serializers.ModelSerializer):
             'order', 'is_active', 'created_at', 'updated_at'
         ]
         read_only_fields = ['created_at', 'updated_at']
+
+    def to_representation(self, instance):
+        copy_featured_product_state(instance)
+        return super().to_representation(instance)
 
 
 class AdminBestProductSerializer(serializers.ModelSerializer):
@@ -2234,8 +2299,6 @@ class BulkGiftCodeCreateSerializer(serializers.Serializer):
         gift_codes = [GiftCode(product=product, code=code, is_active=is_active) for code in codes]
         GiftCode.objects.bulk_create(gift_codes)
         return gift_codes
-
-
 
 
 
