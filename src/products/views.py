@@ -2675,22 +2675,87 @@ class RedeemPromoCodeView(APIView):
 # ─── Gift Code Views ──────────────────────────────────────────────────────────
 
 
+class GiftCodeProductAnalysisView(APIView):
+    """Dashboard: gift-code inventory and usage counts for every product."""
+    permission_classes = [IsAdminUser]
+
+    def get(self, request, *args, **kwargs):
+        products = Product.objects.annotate(
+            total_codes=Count('gift_codes'),
+            used_codes=Count(
+                'gift_codes',
+                filter=Q(gift_codes__is_used=True),
+            ),
+            active_codes=Count(
+                'gift_codes',
+                filter=Q(gift_codes__is_active=True),
+            ),
+            inactive_codes=Count(
+                'gift_codes',
+                filter=Q(gift_codes__is_active=False),
+            ),
+            unused_codes=Count(
+                'gift_codes',
+                filter=Q(gift_codes__is_used=False),
+            ),
+            active_unused_codes=Count(
+                'gift_codes',
+                filter=Q(
+                    gift_codes__is_active=True,
+                    gift_codes__is_used=False,
+                ),
+            ),
+        ).order_by('id')
+
+        results = [
+            {
+                'product': PromoCodeBookSerializer(product).data,
+                'total_codes': product.total_codes,
+                'used_codes': product.used_codes,
+                'active_codes': product.active_codes,
+                'inactive_codes': product.inactive_codes,
+                'unused_codes': product.unused_codes,
+                'active_unused_codes': product.active_unused_codes,
+            }
+            for product in products
+        ]
+        return Response(results, status=status.HTTP_200_OK)
+
+
 class GiftCodeListCreateView(generics.ListCreateAPIView):
     """Dashboard: list or create individual gift codes."""
-    queryset = GiftCode.objects.select_related('product')
+    queryset = GiftCode.objects.select_related(
+        'product',
+        'used_for_user',
+        'used_for_pill',
+        'used_for_purchasedbook',
+    )
     serializer_class = GiftCodeSerializer
     permission_classes = [IsAdminUser]
     filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter, OrderingFilter]
     filterset_class = GiftCodeFilter
-    search_fields = ['code', 'product__name', 'product__product_number']
-    ordering_fields = ['id', 'code', 'product__name', 'is_active', 'created_at', 'updated_at']
+    search_fields = [
+        'code', 'product__name', 'product__product_number',
+        'used_for_user__name', 'used_for_user__username',
+        'used_for_pill__pill_number',
+    ]
+    ordering_fields = [
+        'id', 'code', 'product__name', 'product__product_number',
+        'product__type', 'product__year', 'is_active', 'is_used',
+        'used_at', 'created_at', 'updated_at',
+    ]
     ordering = ['-created_at']
     pagination_class = CustomPageNumberPagination
 
 
 class GiftCodeRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
     """Dashboard: retrieve, update or delete a gift code."""
-    queryset = GiftCode.objects.select_related('product')
+    queryset = GiftCode.objects.select_related(
+        'product',
+        'used_for_user',
+        'used_for_pill',
+        'used_for_purchasedbook',
+    )
     serializer_class = GiftCodeSerializer
     permission_classes = [IsAdminUser]
 
@@ -2722,4 +2787,32 @@ class GiftCodeBulkCreateView(generics.CreateAPIView):
                 'gift_codes': out.data,
             },
             status=status.HTTP_201_CREATED,
+        )
+
+
+class StudentGiftCodeListView(generics.ListAPIView):
+    """Authenticated user: list every gift code assigned to their purchases."""
+    serializer_class = StudentGiftCodeSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter, OrderingFilter]
+    filterset_class = GiftCodeFilter
+    search_fields = [
+        'code', 'product__name', 'product__product_number',
+        'used_for_pill__pill_number',
+    ]
+    ordering_fields = [
+        'id', 'code', 'product__name', 'product__product_number',
+        'product__type', 'product__year', 'used_at', 'created_at', 'updated_at',
+    ]
+    ordering = ['-used_at', '-id']
+    pagination_class = CustomPageNumberPagination
+
+    def get_queryset(self):
+        return GiftCode.objects.filter(
+            used_for_user=self.request.user,
+            is_used=True,
+        ).select_related(
+            'product',
+            'used_for_pill',
+            'used_for_purchasedbook',
         )

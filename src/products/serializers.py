@@ -3,7 +3,7 @@ from rest_framework.exceptions import ValidationError
 from collections import defaultdict
 from urllib.parse import urljoin
 from django.utils import timezone
-from django.db.models import Sum, F
+from django.db.models import Sum, F, Q
 from django.db import transaction
 from django.conf import settings
 from accounts.models import User
@@ -2237,8 +2237,15 @@ class GiftCodeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = GiftCode
-        fields = ['id', 'product', 'product_id', 'code', 'is_active', 'created_at', 'updated_at']
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        fields = [
+            'id', 'product', 'product_id', 'code', 'is_active', 'is_used',
+            'used_at', 'used_for_user', 'used_for_pill',
+            'used_for_purchasedbook', 'created_at', 'updated_at',
+        ]
+        read_only_fields = [
+            'id', 'is_used', 'used_at', 'used_for_user', 'used_for_pill',
+            'used_for_purchasedbook', 'created_at', 'updated_at',
+        ]
 
     def validate_code(self, value):
         value = (value or '').strip()
@@ -2250,6 +2257,21 @@ class GiftCodeSerializer(serializers.ModelSerializer):
         if queryset.exists():
             raise serializers.ValidationError('يوجد كود هدية بنفس القيمة بالفعل.')
         return value
+
+
+class StudentGiftCodeSerializer(serializers.ModelSerializer):
+    """Student: read-only details for a gift code received after payment."""
+    product = PromoCodeBookSerializer(read_only=True)
+    pill_number = serializers.CharField(source='used_for_pill.pill_number', read_only=True)
+
+    class Meta:
+        model = GiftCode
+        fields = [
+            'id', 'code', 'product', 'is_active', 'is_used', 'used_at',
+            'used_for_pill', 'pill_number', 'used_for_purchasedbook',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = fields
 
 
 class BulkGiftCodeCreateSerializer(serializers.Serializer):
@@ -2272,19 +2294,19 @@ class BulkGiftCodeCreateSerializer(serializers.Serializer):
         seen = set()
         for raw in value:
             code = (raw or '').strip()
-            if not code or code in seen:
+            normalized_code = code.casefold()
+            if not code or normalized_code in seen:
                 continue
-            seen.add(code)
+            seen.add(normalized_code)
             cleaned.append(code)
 
         if not cleaned:
             raise serializers.ValidationError('يجب توفير كود هدية واحد على الأقل.')
 
-        existing = set(
-            GiftCode.objects
-            .filter(code__in=cleaned)
-            .values_list('code', flat=True)
-        )
+        existing_query = Q()
+        for code in cleaned:
+            existing_query |= Q(code__iexact=code)
+        existing = set(GiftCode.objects.filter(existing_query).values_list('code', flat=True))
         if existing:
             raise serializers.ValidationError(
                 f'هذه الأكواد موجودة بالفعل: {", ".join(sorted(existing))}'
@@ -2299,8 +2321,6 @@ class BulkGiftCodeCreateSerializer(serializers.Serializer):
         gift_codes = [GiftCode(product=product, code=code, is_active=is_active) for code in codes]
         GiftCode.objects.bulk_create(gift_codes)
         return gift_codes
-
-
 
 
 

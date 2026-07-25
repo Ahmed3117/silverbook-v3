@@ -187,10 +187,23 @@ class GiftCodeFilter(filters.FilterSet):
     product_id = filters.NumberFilter(field_name='product__id')
     product_number = filters.CharFilter(field_name='product__product_number', lookup_expr='icontains')
     product_name = filters.CharFilter(field_name='product__name', lookup_expr='icontains')
+    product_type = filters.CharFilter(field_name='product__type', lookup_expr='iexact')
+    product_year = filters.CharFilter(field_name='product__year', lookup_expr='iexact')
     is_active = filters.BooleanFilter(field_name='is_active')
+    is_used = filters.BooleanFilter(field_name='is_used')
+    used_for_user_id = filters.NumberFilter(field_name='used_for_user__id')
+    used_for_pill_id = filters.NumberFilter(field_name='used_for_pill__id')
+    pill_number = filters.CharFilter(field_name='used_for_pill__pill_number', lookup_expr='icontains')
+    used_for_purchasedbook_id = filters.NumberFilter(field_name='used_for_purchasedbook__id')
     start_date = filters.DateFilter(field_name='created_at', lookup_expr='date__gte')
     end_date = filters.DateFilter(field_name='created_at', lookup_expr='date__lte')
+    used_after = filters.DateTimeFilter(field_name='used_at', lookup_expr='gte')
+    used_before = filters.DateTimeFilter(field_name='used_at', lookup_expr='lte')
 
     class Meta:
         model = GiftCode
-        fields = ['code', 'product_id', 'product_number', 'product_name', 'is_active']
+        fields = [
+            'code', 'product_id', 'product_number', 'product_name', 'product_type',
+            'product_year', 'is_active', 'is_used', 'used_for_user_id',
+            'used_for_pill_id', 'pill_number', 'used_for_purchasedbook_id',
+        ]

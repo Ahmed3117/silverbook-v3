@@ -578,31 +578,37 @@ class Pill(models.Model):
             if not product:
                 continue
 
-            purchased_book = PurchasedBook.objects.filter(
-                user=self.user,
-                pill=self,
-                product=product,
-            ).first()
-            assigned_code = purchased_book.code if purchased_book and purchased_book.code else None
+            with transaction.atomic():
+                purchased_book = (
+                    PurchasedBook.objects
+                    .select_for_update()
+                    .filter(user=self.user, pill=self, product=product)
+                    .first()
+                )
+                assigned_code = purchased_book.code if purchased_book and purchased_book.code else None
 
-            if purchase_method == 'user_paid' and not assigned_code:
-                assigned_code = self._consume_gift_code(product)
+                defaults = {
+                    'product_name': product.name,
+                    'pill_item': item,
+                    'purchase_method': purchase_method,
+                }
+                if assigned_code:
+                    defaults['code'] = assigned_code
 
-            defaults = {
-                'product_name': product.name,
-                'pill_item': item,
-                'purchase_method': purchase_method,
-            }
-            if assigned_code:
-                defaults['code'] = assigned_code
+                # Create PurchasedBook before consuming a GiftCode so the usage record
+                # can point to the exact library entry that received it.
+                purchased_book, _ = PurchasedBook.objects.update_or_create(
+                    user=self.user,
+                    pill=self,
+                    product=product,
+                    defaults=defaults,
+                )
 
-            # Create PurchasedBook for the product (book or package)
-            purchased_book, _ = PurchasedBook.objects.update_or_create(
-                user=self.user,
-                pill=self,
-                product=product,
-                defaults=defaults,
-            )
+                if purchase_method == 'user_paid' and not assigned_code:
+                    assigned_code = self._consume_gift_code(product, purchased_book)
+                    if assigned_code:
+                        purchased_book.code = assigned_code
+                        purchased_book.save(update_fields=['code'])
 
             if purchased_book.code:
                 pill_codes.append(purchased_book.code)
@@ -654,46 +660,44 @@ class Pill(models.Model):
         except Exception as exc:  # pragma: no cover - best effort notification
             logger.warning("Failed to send payment notification for pill %s: %s", self.pill_number, exc)
 
-    def _consume_gift_code(self, product):
-        """Atomically pick the first active GiftCode for a product and return its code.
+    def _consume_gift_code(self, product, purchased_book):
+        """Atomically assign the first available GiftCode to a PurchasedBook.
 
-        Returns ``None`` when there are no active GiftCode records for this product.
+        A consumed code remains in the gift-code pool for auditing, but is marked
+        used and linked to the receiving user, pill, and purchased book. Assignment
+        does not change the administrator-controlled ``is_active`` state.
+        Returns ``None`` when there are no available GiftCode records for this product.
         """
-        if not product:
+        if not product or not purchased_book:
             return None
 
-        try:
-            with transaction.atomic():
-                gift_code = (
-                    GiftCode.objects
-                    .select_for_update(skip_locked=True)
-                    .filter(product=product, is_active=True)
-                    .order_by('id')
-                    .first()
-                )
-                if not gift_code:
-                    return None
-
-                gift_code.is_active = False
-                gift_code.save(update_fields=['is_active'])
-                return gift_code.code
-        except Exception:
-            # ``select_for_update`` is not supported on all databases (e.g. SQLite);
-            # fall back to a plain lookup.
+        with transaction.atomic():
             gift_code = (
                 GiftCode.objects
-                .filter(product=product, is_active=True)
+                .select_for_update()
+                .filter(product=product, is_active=True, is_used=False)
                 .order_by('id')
                 .first()
             )
+            if not gift_code:
+                return None
 
-        if not gift_code:
-            return None
-
-        updated = GiftCode.objects.filter(pk=gift_code.pk, is_active=True).update(is_active=False)
-        if not updated:
-            return None
-        return gift_code.code
+            used_at = timezone.now()
+            updated = GiftCode.objects.filter(
+                pk=gift_code.pk,
+                is_active=True,
+                is_used=False,
+            ).update(
+                is_used=True,
+                used_at=used_at,
+                used_for_user=self.user,
+                used_for_pill=self,
+                used_for_purchasedbook=purchased_book,
+                updated_at=used_at,
+            )
+            if not updated:
+                return None
+            return gift_code.code
 
     def _code_list(self):
         if isinstance(self.code, list):
@@ -984,6 +988,41 @@ class GiftCode(models.Model):
         default=True,
         db_index=True,
         help_text="When true, this code is still available to be assigned to a pill.",
+    )
+    is_used = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="Whether this code has already been assigned to a purchased book.",
+    )
+    used_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="When this code was assigned to a purchased book.",
+    )
+    used_for_user = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='used_gift_codes',
+        help_text="User who received this gift code.",
+    )
+    used_for_pill = models.ForeignKey(
+        Pill,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='used_gift_codes',
+        help_text="Paid pill that caused this gift code to be assigned.",
+    )
+    used_for_purchasedbook = models.ForeignKey(
+        PurchasedBook,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='used_gift_codes',
+        help_text="PurchasedBook entry that received this gift code.",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

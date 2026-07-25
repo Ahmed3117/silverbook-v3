@@ -58,5 +58,11 @@ core/settings.prod.py
 accounts/management/
 accounts/tests_security.py
 docs/
+*.md
+*.mdx
 *.json
 products/tests.py
+test_*.py
+*_test.py
+**/migrations/*
+!**/migrations/__init__.py

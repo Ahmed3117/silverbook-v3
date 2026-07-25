@@ -209,8 +209,8 @@ class PackageProductInline(admin.TabularInline):
 class GiftCodeInline(admin.TabularInline):
     model = GiftCode
     extra = 0
-    fields = ('code', 'is_active', 'created_at', 'updated_at')
-    readonly_fields = ('created_at', 'updated_at')
+    fields = ('code', 'is_active', 'is_used', 'used_at', 'created_at', 'updated_at')
+    readonly_fields = ('is_used', 'used_at', 'created_at', 'updated_at')
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
@@ -739,11 +739,22 @@ class CouponDiscountAdmin(admin.ModelAdmin):
 @admin.register(GiftCode)
 class GiftCodeAdmin(admin.ModelAdmin):
     change_list_template = 'admin/products/giftcode/change_list.html'
-    list_display = ('code', 'product', 'is_active', 'created_at', 'updated_at')
-    list_filter = ('is_active', 'product')
-    search_fields = ('code', 'product__name', 'product__product_number')
+    list_display = (
+        'code', 'product', 'is_active', 'is_used', 'used_for_user',
+        'used_for_pill', 'used_at', 'created_at', 'updated_at',
+    )
+    list_filter = ('is_active', 'is_used', 'product')
+    search_fields = (
+        'code', 'product__name', 'product__product_number',
+        'used_for_user__name', 'used_for_user__username',
+        'used_for_pill__pill_number',
+    )
     autocomplete_fields = ('product',)
     list_editable = ('is_active',)
+    readonly_fields = (
+        'is_used', 'used_at', 'used_for_user', 'used_for_pill',
+        'used_for_purchasedbook', 'created_at', 'updated_at',
+    )
     ordering = ('-created_at',)
 
     def get_urls(self):
@@ -847,4 +858,3 @@ class PackageProductAdmin(admin.ModelAdmin):
 admin.site.register(ProductImage)
 admin.site.register(PillItem)
 # admin.site.register(PillAddress)
-

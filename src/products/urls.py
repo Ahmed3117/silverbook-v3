@@ -108,7 +108,11 @@ urlpatterns = [
     # Gift Code Endpoints (Dashboard)
     path('dashboard/gift-codes/', views.GiftCodeListCreateView.as_view(), name='admin-gift-code-list-create'),
     path('dashboard/gift-codes/bulk-create/', views.GiftCodeBulkCreateView.as_view(), name='admin-gift-code-bulk-create'),
+    path('dashboard/gift-codes/product-analysis/', views.GiftCodeProductAnalysisView.as_view(), name='admin-gift-code-product-analysis'),
     path('dashboard/gift-codes/<int:pk>/', views.GiftCodeRetrieveUpdateDestroyView.as_view(), name='admin-gift-code-detail'),
+
+    # Gift Code Endpoints (Student)
+    path('my-gift-codes/', views.StudentGiftCodeListView.as_view(), name='student-gift-code-list'),
 
     # Payment Endpoints (Fawaterak, Shakeout, EasyPay)
     path('api/payment/create/<int:pill_id>/', payment_views.create_payment_view, name='api_create_payment'),
@@ -132,4 +136,3 @@ urlpatterns = [
     path('pills/<int:pill_id>/check-easypay-status/', payment_views.check_easypay_invoice_status_view, name='check_easypay_status'),
     path('pills/<int:pill_id>/create-payment-invoice/', payment_views.create_payment_invoice_view, name='create_payment_invoice'),
 ]
-
