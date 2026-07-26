@@ -184,7 +184,7 @@ class ProductPurchasersListView(generics.ListAPIView):
     permission_classes = [IsAdminUser]
     pagination_class = CustomPageNumberPagination
     filter_backends = [DjangoFilterBackend, rest_filters.SearchFilter]
-    filterset_fields = ['year']
+    filterset_fields = ['year', 'gender']
     search_fields = ['name', 'username']
 
     def get_serializer_class(self):
@@ -260,7 +260,7 @@ class ProductPurchasersListView(generics.ListAPIView):
 
         return (
             User.objects.filter(pb_filter)
-            .only('id', 'name', 'username', 'year')
+            .only('id', 'name', 'username', 'year', 'gender')
             .annotate(purchase_method_label=Subquery(purchased_books_latest[:1]))
             .distinct()
             .order_by('username')

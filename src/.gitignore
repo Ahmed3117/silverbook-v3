@@ -61,8 +61,10 @@ docs/
 *.md
 *.mdx
 *.json
+!allPermissions.json
 products/tests.py
 test_*.py
 *_test.py
 **/migrations/*
 !**/migrations/__init__.py
+!accounts/migrations/0002_user_gender.py

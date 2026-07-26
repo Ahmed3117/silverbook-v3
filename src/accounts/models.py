@@ -57,6 +57,13 @@ DIVISION_CHOICES = [
 
 ]
 
+GENDER_CHOICES = [
+    ('male', 'Male'),
+    ('female', 'Female'),
+    ('not_defined', 'Not Defined'),
+]
+
+
 class UserProfileImage(models.Model):
     image = models.ImageField(upload_to='profile_images/')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -75,6 +82,12 @@ class User(AbstractUser):
     otp_created_at = models.DateTimeField(null=True, blank=True)
     email = models.EmailField(blank=True, null=True, max_length=254)
     user_type = models.CharField(max_length=20, choices=USER_TYPE_CHOICES)
+    gender = models.CharField(
+        max_length=20,
+        choices=GENDER_CHOICES,
+        default='not_defined',
+        db_index=True,
+    )
     parent_phone = models.CharField(max_length=20, null=True, blank=True, help_text="Only applicable for students")
     year = models.CharField(
         max_length=20,
@@ -312,6 +325,7 @@ class DeletedUserArchive(models.Model):
     name = models.CharField(max_length=100)
     email = models.EmailField(blank=True, null=True)
     user_type = models.CharField(max_length=20, choices=USER_TYPE_CHOICES)
+    gender = models.CharField(max_length=20, choices=GENDER_CHOICES, default='not_defined', db_index=True)
     parent_phone = models.CharField(max_length=20, null=True, blank=True)
     year = models.CharField(max_length=20, choices=YEAR_CHOICES, null=True, blank=True)
     division = models.CharField(max_length=20, choices=DIVISION_CHOICES, null=True, blank=True)

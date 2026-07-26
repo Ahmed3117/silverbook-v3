@@ -7,13 +7,13 @@ from django.contrib import messages
 
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
-    list_display = ('username', 'name', 'email', 'user_type', 'is_staff', 'max_allowed_devices', 'get_active_devices')
-    list_filter = ('user_type', 'is_staff', 'is_superuser', 'is_active', 'groups', 'government', 'year')
+    list_display = ('username', 'name', 'email', 'user_type', 'gender', 'is_staff', 'max_allowed_devices', 'get_active_devices')
+    list_filter = ('user_type', 'gender', 'is_staff', 'is_superuser', 'is_active', 'groups', 'government', 'year')
     search_fields = ('username', 'name', 'email')
     ordering = ('-date_joined',)
     fieldsets = (
         (None, {'fields': ('username', 'password')}),
-        ('Personal info', {'fields': ('name', 'email')}),
+        ('Personal info', {'fields': ('name', 'email', 'gender')}),
         ('User Type Specifics', {'fields': ('user_type', 'year', 'parent_phone', 'division')}),
         ('Device Management', {'fields': ('max_allowed_devices',)}),
         ('Location', {'fields': ('government',)}),
